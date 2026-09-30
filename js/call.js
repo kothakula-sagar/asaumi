@@ -8,7 +8,8 @@ import {
   db, state, uid, myName, esc, ICONS, toast, avatarHtml, toDate, fmtDuration, friendlyError,
   realNameOf, partnerName, audioCtx, actions, $
 } from "./core.js";
-import { notifyPartner, systemNotify } from "./notify.js";
+import { notifyPartner, systemNotify, pushPartner } from "./notify.js";
+import { CHANNELS } from "./native.js";
 import { ICE_SERVERS } from "./config.js";
 
 const RING_TIMEOUT = 45000;       // caller gives up after this
@@ -283,6 +284,11 @@ async function startCall(kind = "video") {
       createdAt: serverTimestamp()
     });
     setState("ringing");
+    pushPartner({
+      title: kind === "audio" ? "📞 Asaumi" : "📹 Asaumi",
+      body: `${myName()} is ${kind === "audio" ? "calling" : "video calling"} you`,
+      page: "home", tag: "call", channel: CHANNELS.calls, ttl: 45
+    });
   } catch (err) {
     cleanup();
     showEnded("Call failed", friendlyError(err, "Please check your connection and try again."));
@@ -487,7 +493,7 @@ async function finish(reason = "ended") {
   updateDoc(c.ref, upd).catch(() => {});
   cleanCandidates(c.ref);
   if (status === "missed") {
-    notifyPartner("missed_call", `📹 You missed a ${c.kind === "audio" ? "call" : "video call"} from ${myName()}.`, { callId: c.id });
+    notifyPartner("missed_call", `You missed a ${c.kind === "audio" ? "call" : "video call"} from ${myName()}`, { callId: c.id });
   }
   const title = `${c.kind === "audio" ? "Audio" : "Video"} call ended`;
   if (status === "failed") showEnded("Couldn't connect", "The connection couldn't be established. Please try again.");

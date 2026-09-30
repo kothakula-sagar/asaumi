@@ -5,7 +5,7 @@ import {
   prepareImage, upload, friendlyError, fmtDate, fmtDuration, shortWhen, realNameOf, spinner,
   scheduleRender, actions, views, $
 } from "./core.js";
-import { enableNotifications } from "./notify.js";
+import { enableNotifications, notificationStatus } from "./notify.js";
 import { LIMITS } from "./config.js";
 
 function callHistory() {
@@ -26,11 +26,12 @@ function callHistory() {
   }).join("")}</div>`;
 }
 
+let notif = { label: "Checking…", btn: false };
 function notifState() {
-  if (!("Notification" in window)) return { label: "Not supported", btn: false };
-  if (Notification.permission === "granted") return { label: "On", btn: false };
-  if (Notification.permission === "denied") return { label: "Blocked in browser settings", btn: false };
-  return { label: "Off", btn: true };
+  notificationStatus().then(n => {
+    if (n.label !== notif.label || n.btn !== notif.btn) { notif = n; scheduleRender(); }
+  });
+  return notif;
 }
 
 function renderMore() {

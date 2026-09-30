@@ -8,7 +8,10 @@ import {
   auth, db, state, views, actions, hooks, scheduleRender, $, $$, esc, ICONS, avatarHtml, presenceDot,
   isOnline, statusText, toast, friendlyError, confirmDialog, closeAllModals, cld, spinner, whenDate
 } from "./core.js";
-import { startPresence, stopPresence, unreadNotifications, unreadMessages, announceNotification } from "./notify.js";
+import {
+  startPresence, stopPresence, unreadNotifications, unreadMessages, announceNotification, registerPush, unregisterPush
+} from "./notify.js";
+import { isNative, onNotificationTap, clearDelivered, onBackButton, onResume, minimizeApp } from "./native.js";
 import { mountChat, updateChat, markDelivered, onIncomingMessage, resetChat } from "./chat.js";
 import { watchIncoming, stopWatchingIncoming } from "./call.js";
 import { lockMemories } from "./memories.js";
@@ -62,6 +65,26 @@ onAuthStateChanged(auth, async user => {
   startPresence();
   watchIncoming();
   scheduleRender();
+  if (isNative) {
+    registerPush();
+    clearDelivered();
+    if (pendingPage) { go(pendingPage); pendingPage = null; }
+  }
+});
+
+/* ------------------------------------------------------------------ Android app integration */
+let pendingPage = null;
+onNotificationTap(page => {
+  const view = page in views ? page : "home";
+  if (state.user) go(view); else pendingPage = view;
+});
+onResume(() => { if (state.user) clearDelivered(); });
+onBackButton(() => {
+  const top = $("#modal-root").lastElementChild;
+  if (top) { if (top.dismissable) top.close(); return; }
+  if (document.body.classList.contains("in-call")) return;
+  if (state.user && state.view !== "home") { go("home", { replace: true }); return; }
+  minimizeApp();
 });
 
 function onErr(err) {
@@ -304,6 +327,7 @@ actions.signOut = async () => {
   if (!ok) return;
   lockMemories();
   stopWatchingIncoming();
+  await unregisterPush();
   await stopPresence();
   state.unsubs.forEach(u => u());
   state.unsubs = [];
@@ -321,6 +345,6 @@ addEventListener("offline", syncNet);
 syncNet();
 
 /* ------------------------------------------------------------------ service worker (install + notifications) */
-if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+if (!isNative && "serviceWorker" in navigator && location.protocol.startsWith("http")) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }

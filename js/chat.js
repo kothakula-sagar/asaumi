@@ -2,11 +2,11 @@ import {
   doc, collection, addDoc, deleteDoc, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
-  db, state, uid, esc, ICONS, toast, openModal, confirmDialog, viewImage, avatarHtml, presenceDot,
+  db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, viewImage, avatarHtml, presenceDot,
   statusText, isTyping, toDate, fmtTime, dayLabel, sameDay, fmtDuration, cld, videoPoster, audioUrl,
   prepareImage, upload, friendlyError, partnerName, realNameOf, spinner, audioCtx, ping, actions, views, $, $$
 } from "./core.js";
-import { typingPing, typingStop, systemNotify } from "./notify.js";
+import { typingPing, typingStop, systemNotify, pushPartner } from "./notify.js";
 import { LIMITS } from "./config.js";
 
 const EMOJIS = "❤️ 😘 🥰 😍 😊 😂 🤣 😅 😇 🙈 😴 🥺 😢 😭 😤 😡 🤗 🤔 😌 😋 😎 🤍 💜 💙 💕 💖 💞 💫 ✨ 🌙 ⭐ 🌸 🌹 🌈 ☕ 🍫 🍕 🎶 🎉 🎂 🙏 👍 👌 🤞 👏 🫶 💪 🔥 💯".split(" ");
@@ -373,26 +373,23 @@ export function markRead() {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) markRead(); });
 
 // Called by app.js with each new message from the other person (not the first load)
-export function onIncomingMessage(m) {
-  const label = { image: "📷 Sent you a photo", video: "🎬 Sent you a video", voice: "🎤 Sent you a voice message" }[m.type] || (m.text || "").slice(0, 120);
+export function onIncomingMessage() {
   const inChat = state.view === "chat" && !document.hidden;
-  if (!inChat) {
-    ping();
-    if (!document.hidden) toastMessage(label);
-    systemNotify(`❤️ ${partnerName()}`, label, "message");
-  }
-}
-
-function toastMessage(label) {
-  toast(`💬 ${partnerName()}: ${label}`);
+  if (inChat) return;
+  const text = `${partnerName()} have send you message`;
+  ping();
+  if (!document.hidden) toast(`💬 ${text}`);
+  systemNotify("❤️ Asaumi", text, "message");
 }
 
 /* ------------------------------------------------------------------ sending */
 async function sendMessage(data) {
   if (!state.partner) { toast("Your person hasn't signed in to Asaumi yet."); throw new Error("no partner"); }
-  return addDoc(collection(db, "messages"), {
+  const ref = await addDoc(collection(db, "messages"), {
     ...data, from: uid(), to: state.partner.uid, createdAt: serverTimestamp()
   });
+  pushPartner({ body: `${myName()} have send you message`, page: "chat", tag: "chat" });
+  return ref;
 }
 
 function sendText() {

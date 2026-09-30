@@ -6,6 +6,7 @@ import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, CLOUDINARY } from "./config.js";
+import { isNative, openExternal } from "./native.js";
 
 /* ------------------------------------------------------------------ firebase */
 export const fbApp = initializeApp(firebaseConfig);
@@ -297,6 +298,8 @@ export function upload(file, { sub = "", onProgress, signal } = {}) {
 }
 
 export async function downloadFile(url, baseName) {
+  // In the Android app, hand the file to Chrome, which saves it to Downloads.
+  if (isNative) { await openExternal(cld(url, "fl_attachment")); return; }
   const ext = (url.split("?")[0].split(".").pop() || "jpg").toLowerCase();
   try {
     const res = await fetch(url);

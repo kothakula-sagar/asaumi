@@ -24,6 +24,12 @@ service cloud.firestore {
       allow write: if isMember() && me() == uid;
     }
 
+    // Each phone's notification token(s): both can read (to notify each other), each writes only their own
+    match /pushTokens/{uid} {
+      allow read: if isMember();
+      allow write: if isMember() && me() == uid;
+    }
+
     // Each person's Memories PIN hash — only they can see it
     match /pins/{uid} {
       allow read, write: if isMember() && me() == uid;

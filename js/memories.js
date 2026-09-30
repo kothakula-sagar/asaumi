@@ -225,7 +225,7 @@ function addMemoryModal() {
         title: title.value.trim(), text: text.value.trim(),
         byUid: uid(), byName: myName(), createdAt: serverTimestamp()
       });
-      notifyPartner("memory", "🔐 A new memory was added to Asaumi.", { refId: ref.id });
+      notifyPartner("memory", `${myName()} added memories`, { refId: ref.id });
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       m.close();
       toast("Memory saved 💜");

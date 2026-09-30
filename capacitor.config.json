@@ -1,0 +1,12 @@
+{
+  "appId": "com.asaumi.app",
+  "appName": "Asaumi",
+  "webDir": "www",
+  "backgroundColor": "#3b1fb8",
+  "server": { "androidScheme": "https" },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

@@ -5,6 +5,9 @@ PIN-locked Memories, Memorable Movements, notifications, and one shared backgrou
 
 Plain HTML/CSS/JS, so there's no build step. It uses Firebase (login, database, call signalling) and Cloudinary (media).
 
+**📱 Android app with notifications:** follow [HOW-TO-INSTALL-ON-PHONE.md](HOW-TO-INSTALL-ON-PHONE.md).
+GitHub Actions builds the APK with Capacitor. Notifications go phone-to-phone through Firebase Cloud Messaging on the free Spark plan.
+
 ```
 asaumi/
   index.html  manifest.json  sw.js  icon.svg  firestore.rules
@@ -56,8 +59,9 @@ To test on your computer, run `python -m http.server 8080` inside this folder an
 - **Memories 🔐.** Each person sets their own PIN. For **Forgot PIN**, you enter your login password first, then create a new PIN.
   Memories lock again when you leave the section or the app goes to the background.
   The PIN is a screen lock. The real protection is the Firestore rules.
-- **Notifications.** In-app bell and badges, plus phone notifications while Asaumi is open or in the background (turn them on in **More**).
-  Notifications when the app is fully closed would need Firebase Cloud Functions and FCM, which require the paid Blaze plan.
+- **Notifications.** In-app bell and badges. The Android app also gets real push notifications, even when it's closed:
+  "{Name} have send you message", "{Name} added memories", calls and missed calls.
+  The sender's app sends them directly, so they're free with no server. See `js/native.js`.
 - **Background.** Recommended size is 1080 × 1920 px (9:16). You see a preview first, then save. One background is shared by both of you.
 
 ## Privacy notes

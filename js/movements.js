@@ -73,7 +73,7 @@ function addMovementModal() {
         text: text.value.trim(), when: when.value,
         byUid: uid(), byName: myName(), createdAt: serverTimestamp()
       });
-      notifyPartner("movement", `❤️ New Memorable Movement: “${text.value.trim().slice(0, 60)}”`, { refId: ref.id });
+      notifyPartner("movement", `${myName()} added a memorable movement`, { refId: ref.id });
       m.close();
       toast("Memorable Movement saved ❤️");
     } catch (e) {

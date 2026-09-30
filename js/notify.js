@@ -1,9 +1,10 @@
 import {
-  doc, setDoc, addDoc, collection, serverTimestamp, writeBatch
+  doc, getDoc, setDoc, addDoc, collection, serverTimestamp, writeBatch, arrayUnion, arrayRemove
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, myName, esc, ICONS, openModal, toast, shortWhen, scheduleRender, actions, $
 } from "./core.js";
+import { isNative, initPush, getPushToken, pushPermission, canSendPush, sendPush, CHANNELS } from "./native.js";
 
 /* ------------------------------------------------------------------ presence */
 let heartbeat;
@@ -52,9 +53,28 @@ export function typingStop() {
   writePresence({ typing: false });
 }
 
+/* ------------------------------------------------------------------ phone push to the other person */
+// Sends a phone notification to the other person's Asaumi app (only from the Android app).
+export async function pushPartner(opts) {
+  if (!canSendPush() || !state.partner) return;
+  try {
+    const snap = await getDoc(doc(db, "pushTokens", state.partner.uid));
+    await sendPush(snap.data()?.tokens || [], opts);
+  } catch (err) {
+    console.warn("[asaumi] push partner", err);
+  }
+}
+
+const PUSH_FOR = {
+  memory: { page: "memories", tag: "memories" },
+  movement: { page: "asaumi", tag: "movement" },
+  missed_call: { page: "home", tag: "call", channel: CHANNELS.calls }
+};
+
 /* ------------------------------------------------------------------ in-app notifications */
 export function notifyPartner(type, text, extra = {}) {
   if (!state.partner) return;
+  if (PUSH_FOR[type]) pushPartner({ body: text, ...PUSH_FOR[type] });
   addDoc(collection(db, "notifications"), {
     to: state.partner.uid, from: uid(), fromName: myName(),
     type, text, read: false, createdAt: serverTimestamp(), ...extra
@@ -100,7 +120,7 @@ function notifRow(n) {
 actions.openNotifications = () => {
   const msgs = unreadMessages();
   const rows = [
-    msgs ? notifRow({ type: "message", text: `❤️ You received ${msgs === 1 ? "a new message" : `${msgs} new messages`}.`, fromName: state.partner?.name, createdAt: state.messages.at(-1)?.createdAt }) : "",
+    msgs ? notifRow({ type: "message", text: `${state.partner?.name || "Your person"} have send you message${msgs > 1 ? ` (${msgs})` : ""}`, fromName: state.partner?.name, createdAt: state.messages.at(-1)?.createdAt }) : "",
     ...state.notifications.slice(0, 40).map(notifRow)
   ].join("");
   const m = openModal(`
@@ -117,6 +137,7 @@ actions.openNotifications = () => {
 
 /* ------------------------------------------------------------------ system notifications */
 export function systemNotify(title, body, tag = "asaumi") {
+  if (isNative) return; // the Android app gets real push notifications instead
   if (!("Notification" in window) || Notification.permission !== "granted" || !document.hidden) return;
   const opts = { body, tag, icon: "icon.svg", badge: "icon.svg", renotify: true };
   (navigator.serviceWorker?.getRegistration() || Promise.resolve(null))
@@ -124,7 +145,42 @@ export function systemNotify(title, body, tag = "asaumi") {
     .catch(() => {});
 }
 
+/* ------------------------------------------------------------------ push (Android app) */
+// Saves this phone's Firebase Cloud Messaging token so the Cloud Function can reach it.
+export function registerPush() {
+  return initPush(token => {
+    if (!uid()) return;
+    setDoc(doc(db, "pushTokens", uid()), { tokens: arrayUnion(token), updatedAt: serverTimestamp() }, { merge: true })
+      .catch(err => console.warn("[asaumi] save push token", err));
+  });
+}
+
+// Called before sign-out so a signed-out phone stops receiving notifications.
+export async function unregisterPush() {
+  const t = getPushToken();
+  if (!t || !uid()) return;
+  await setDoc(doc(db, "pushTokens", uid()), { tokens: arrayRemove(t) }, { merge: true }).catch(() => {});
+}
+
+export async function notificationStatus() {
+  if (isNative) {
+    const p = await pushPermission();
+    if (p === "unsupported") return { label: "Not set up in this build", btn: false };
+    return p === "granted" ? { label: "On", btn: false } : { label: "Off", btn: true };
+  }
+  if (!("Notification" in window)) return { label: "Not supported", btn: false };
+  if (Notification.permission === "granted") return { label: "On", btn: false };
+  if (Notification.permission === "denied") return { label: "Blocked in browser settings", btn: false };
+  return { label: "Off", btn: true };
+}
+
 export async function enableNotifications() {
+  if (isNative) {
+    const ok = await registerPush();
+    toast(ok ? "Notifications turned on 🔔" : "Allow notifications for Asaumi in your phone's settings.");
+    scheduleRender();
+    return;
+  }
   if (!("Notification" in window)) { toast("This browser doesn't support notifications."); return; }
   const p = await Notification.requestPermission();
   toast(p === "granted" ? "Notifications turned on 🔔" : "Notifications are blocked in your browser settings.");
