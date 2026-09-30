@@ -57,6 +57,11 @@ export function mountChat() {
         <div class="emoji-panel" id="emoji-panel" hidden>
           ${EMOJIS.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join("")}
         </div>
+        <div class="reply-bar" id="reply-bar" hidden>
+          <span class="rb-ico">${ICONS.reply}</span>
+          <div class="rb-body"><b id="rb-name"></b><span id="rb-text"></span></div>
+          <button class="c-btn" id="rb-close" aria-label="Cancel reply">${ICONS.close}</button>
+        </div>
         <div class="c-row c-text">
           <button class="c-btn" id="c-emoji" aria-label="Emoji">${ICONS.smile}</button>
           <label class="c-btn" aria-label="Photo or video">${ICONS.image}<input type="file" id="c-file" accept="image/*,video/*" hidden /></label>
@@ -85,8 +90,10 @@ export function mountChat() {
     who: $("#chat-who"), scroll: $("#chat-scroll"), list: $("#chat-list"), pending: $("#chat-pending"),
     empty: $("#chat-empty"), loading: $("#chat-loading"), more: $("#chat-more"), typing: $("#typing-row"),
     pill: $("#new-pill"), composer: $("#composer"), input: $("#c-input"), send: $("#c-send"),
-    emoji: $("#emoji-panel"), side: $("#chat-side")
+    emoji: $("#emoji-panel"), side: $("#chat-side"), replyBar: $("#reply-bar")
   };
+  replyTo = null;
+  $("#rb-close").addEventListener("click", clearReply);
   rendered.clear();
   firstPaint = true;
   lastIds = "";
@@ -95,11 +102,20 @@ export function mountChat() {
   els.scroll.addEventListener("scroll", () => { if (nearBottom()) els.pill.hidden = true; }, { passive: true });
   els.pill.addEventListener("click", () => scrollBottom(true));
   els.more.addEventListener("click", () => actions.loadEarlier?.());
-  els.list.addEventListener("contextmenu", onMessageMenu);
+  els.list.addEventListener("contextmenu", e => {
+    const row = e.target.closest('.msg-row[data-kind="msg"]');
+    if (!row || e.target.closest("video, a")) return;
+    e.preventDefault();
+    openMessageMenu(row.dataset.id);
+  });
+  bindSwipe();
   els.list.addEventListener("click", e => {
+    if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); return; }
+    const quote = e.target.closest("[data-jump]");
+    if (quote) { jumpTo(quote.dataset.jump); return; }
     const img = e.target.closest("[data-view-img]");
     if (img) viewImage(img.dataset.viewImg, "asaumi-photo");
-  });
+  }, true);
 }
 
 /* ------------------------------------------------------------------ scrolling */
@@ -178,6 +194,8 @@ function itemHtml(it, showDate) {
   return `${sep}
     <div class="msg ${mine ? "me" : "them"} t-${it.type}">
       <div class="bubble">
+        <span class="swipe-ico">${ICONS.reply}</span>
+        ${quoteHtml(it.replyTo)}
         ${contentHtml(it)}
         <div class="meta"><span>${fmtTime(it.createdAt)}</span>${mine ? `<span class="status">${statusHtml(it)}</span>` : ""}</div>
       </div>
@@ -219,12 +237,13 @@ export function updateChat() {
     const showDate = !prevDate || !sameDay(prevDate, d);
     prevDate = d;
     seen.add(it.id);
-    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.status}|${it.duration}|${Math.floor(d.getTime() / 60000)}`;
+    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.status}|${it.duration}|${it.replyTo?.id}|${Math.floor(d.getTime() / 60000)}`;
     let r = rendered.get(it.id);
     if (!r || r.sig !== sig) {
       const el = document.createElement("div");
       el.className = "msg-row";
       el.dataset.id = it.id;
+      el.dataset.kind = it.kind;
       if (it.kind === "msg" && it.from === uid()) el.dataset.mine = "1";
       el.innerHTML = itemHtml(it, showDate);
       if (!r && !firstPaint) el.classList.add("in");
@@ -399,7 +418,8 @@ function sendText() {
   autosize();
   syncSendButton();
   typingStop();
-  sendMessage({ type: "text", text }).catch(err => {
+  const reply = takeReply();
+  sendMessage({ type: "text", text, ...(reply ? { replyTo: reply } : {}) }).catch(err => {
     if (err.message !== "no partner") toast(friendlyError(err, "Message couldn't be sent. Please try again."));
     els.input.value = text;
     autosize();
@@ -428,7 +448,7 @@ async function startUpload(p) {
     };
     if (p.type === "voice") Object.assign(media, { duration: p.duration, wave: p.wave });
     if (p.type === "video") media.duration = up.duration || null;
-    await sendMessage({ type: p.type, text: p.caption || "", media });
+    await sendMessage({ type: p.type, text: p.caption || "", media, ...(p.replyTo ? { replyTo: p.replyTo } : {}) });
     dropPending(p.lid);
   } catch (err) {
     if (err.aborted) return;
@@ -440,6 +460,7 @@ async function startUpload(p) {
 
 function queueUpload(p) {
   p.lid = `l${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+  p.replyTo = takeReply();
   pending.push(p);
   startUpload(p);
 }
@@ -688,14 +709,154 @@ function bindComposer() {
   });
 }
 
-/* ------------------------------------------------------------------ delete (long-press / right-click) */
-async function onMessageMenu(e) {
-  const row = e.target.closest(".msg-row[data-mine]");
-  if (!row || e.target.closest("video, a")) return;
-  e.preventDefault();
-  const ok = await confirmDialog({ icon: "trash", title: "Delete message?", text: "It will be removed for both of you.", ok: "Delete", danger: true });
-  if (!ok) return;
-  deleteDoc(doc(db, "messages", row.dataset.id)).catch(err => toast(friendlyError(err, "Couldn't delete the message.")));
+/* ------------------------------------------------------------------ reply (swipe right, or long-press → Reply) */
+let replyTo = null;          // { id, from, type, text } of the message being replied to
+let suppressClickUntil = 0;  // swallow the click that follows a swipe / long-press
+let lastMenuAt = 0;
+
+function previewOf(m) {
+  const t = (m.text || "").replace(/\s+/g, " ").trim();
+  const s = {
+    image: t ? `📷 ${t}` : "📷 Photo",
+    video: t ? `🎬 ${t}` : "🎬 Video",
+    voice: `🎤 Voice message (${fmtDuration(m.media?.duration)})`
+  }[m.type] || t;
+  return s.length > 120 ? `${s.slice(0, 120)}…` : s;
+}
+
+function quoteHtml(r) {
+  if (!r) return "";
+  return `<button type="button" class="quote" data-jump="${esc(r.id)}">
+      <b>${esc(r.from === uid() ? "You" : realNameOf(r.from))}</b><span>${esc(r.text || "Message")}</span>
+    </button>`;
+}
+
+function setReply(id) {
+  const m = state.messages.find(x => x.id === id);
+  if (!m || !els) return;
+  replyTo = { id: m.id, from: m.from, type: m.type, text: previewOf(m) };
+  $("#rb-name").textContent = m.from === uid() ? "Replying to yourself" : `Replying to ${realNameOf(m.from)}`;
+  $("#rb-text").textContent = replyTo.text;
+  els.replyBar.hidden = false;
+  if (els.composer.dataset.mode === "text") els.input.focus();
+}
+
+function clearReply() {
+  replyTo = null;
+  if (els) els.replyBar.hidden = true;
+}
+
+function takeReply() {
+  const r = replyTo;
+  clearReply();
+  return r;
+}
+
+function jumpTo(id) {
+  const r = rendered.get(id);
+  if (!r) { toast("That message is further up. Tap “Load earlier messages”."); return; }
+  r.el.scrollIntoView({ behavior: "smooth", block: "center" });
+  r.el.classList.remove("flash");
+  void r.el.offsetWidth;
+  r.el.classList.add("flash");
+}
+
+// Drag a message to the right to reply; hold it to open the menu.
+function bindSwipe() {
+  let g = null;
+  const list = els.list;
+  const reset = () => { if (g) clearTimeout(g.timer); g = null; };
+
+  list.addEventListener("pointerdown", e => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const row = e.target.closest('.msg-row[data-kind="msg"]');
+    if (!row || e.target.closest("video, a, .v-play, .quote")) return;
+    g = { row, msg: row.querySelector(".msg"), x: e.clientX, y: e.clientY, dx: 0, horizontal: null, id: e.pointerId };
+    g.timer = setTimeout(() => {
+      if (!g || g.horizontal) return;
+      const id = g.row.dataset.id;
+      reset();
+      suppressClickUntil = Date.now() + 500;
+      navigator.vibrate?.(20);
+      openMessageMenu(id);
+    }, 550);
+  });
+
+  list.addEventListener("pointermove", e => {
+    if (!g || e.pointerId !== g.id) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y;
+    if (g.horizontal === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      clearTimeout(g.timer);
+      g.horizontal = dx > 0 && Math.abs(dx) > Math.abs(dy) * 1.2;
+      if (!g.horizontal) { g = null; return; }
+      try { g.row.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    }
+    g.dx = Math.max(0, dx);
+    const shift = g.dx < 70 ? g.dx : 70 + (g.dx - 70) * 0.25;
+    g.msg.style.transform = `translateX(${shift}px)`;
+    g.msg.style.setProperty("--swipe", Math.min(1, g.dx / 60));
+    const ready = g.dx > 60;
+    if (ready && !g.buzzed) navigator.vibrate?.(10);
+    g.buzzed = ready;
+    g.msg.classList.toggle("swipe-ready", ready);
+  });
+
+  const end = () => {
+    if (!g) return;
+    const { msg, row, dx, horizontal } = g;
+    reset();
+    if (!horizontal) return;
+    suppressClickUntil = Date.now() + 300;
+    msg.style.transition = "transform .22s ease";
+    msg.style.transform = "";
+    msg.style.removeProperty("--swipe");
+    msg.classList.remove("swipe-ready");
+    setTimeout(() => { msg.style.transition = ""; }, 240);
+    if (dx > 60) setReply(row.dataset.id);
+  };
+  list.addEventListener("pointerup", end);
+  list.addEventListener("pointercancel", end);
+}
+
+function copyText(text) {
+  const done = () => toast("Copied");
+  if (navigator.clipboard?.writeText) { navigator.clipboard.writeText(text).then(done).catch(fallback); return; }
+  fallback();
+  function fallback() {
+    const t = Object.assign(document.createElement("textarea"), { value: text });
+    document.body.append(t);
+    t.select();
+    try { document.execCommand("copy"); done(); } catch { toast("Couldn't copy."); }
+    t.remove();
+  }
+}
+
+function openMessageMenu(id) {
+  if (Date.now() - lastMenuAt < 800) return;
+  lastMenuAt = Date.now();
+  const m = state.messages.find(x => x.id === id);
+  if (!m) return;
+  const mine = m.from === uid();
+  const modal = openModal(`
+    <div class="menu-preview">${esc(previewOf(m) || "Message")}</div>
+    <div class="msg-menu">
+      <button data-m="reply">${ICONS.reply}<span>Reply</span></button>
+      ${m.text ? `<button data-m="copy">${ICONS.copy}<span>Copy text</span></button>` : ""}
+      ${mine ? `<button data-m="delete" class="danger">${ICONS.trash}<span>Delete for both</span></button>` : ""}
+    </div>
+    <button class="btn btn-ghost btn-block" data-close>Cancel</button>`, { cls: "action-sheet" });
+  modal.querySelector(".msg-menu").addEventListener("click", async e => {
+    const b = e.target.closest("[data-m]");
+    if (!b) return;
+    modal.close();
+    if (b.dataset.m === "reply") setReply(id);
+    else if (b.dataset.m === "copy") copyText(m.text);
+    else if (b.dataset.m === "delete") {
+      const ok = await confirmDialog({ icon: "trash", title: "Delete message?", text: "It will be removed for both of you.", ok: "Delete", danger: true });
+      if (ok) deleteDoc(doc(db, "messages", id)).catch(err => toast(friendlyError(err, "Couldn't delete the message.")));
+    }
+  });
 }
 
 /* ------------------------------------------------------------------ view */
