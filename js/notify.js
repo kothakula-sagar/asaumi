@@ -4,7 +4,9 @@ import {
 import {
   db, state, uid, myName, esc, ICONS, openModal, toast, shortWhen, scheduleRender, actions, $
 } from "./core.js";
-import { isNative, initPush, getPushToken, pushPermission, canSendPush, sendPush, CHANNELS } from "./native.js";
+import {
+  isNative, initPush, getPushToken, pushPermission, canSendPush, sendPush, CHANNELS, buildInfo, lastPushError
+} from "./native.js";
 
 /* ------------------------------------------------------------------ presence */
 let heartbeat;
@@ -147,11 +149,19 @@ export function systemNotify(title, body, tag = "asaumi") {
 
 /* ------------------------------------------------------------------ push (Android app) */
 // Saves this phone's Firebase Cloud Messaging token so the Cloud Function can reach it.
+export const pushSave = { saved: null, error: "" };
 export function registerPush() {
   return initPush(token => {
     if (!uid()) return;
     setDoc(doc(db, "pushTokens", uid()), { tokens: arrayUnion(token), updatedAt: serverTimestamp() }, { merge: true })
-      .catch(err => console.warn("[asaumi] save push token", err));
+      .then(() => { pushSave.saved = true; pushSave.error = ""; })
+      .catch(err => {
+        console.warn("[asaumi] save push token", err);
+        pushSave.saved = false;
+        pushSave.error = err?.code === "permission-denied"
+          ? "Firestore rules block it: publish the latest firestore.rules (it needs the pushTokens section)."
+          : (err?.code || err?.message || String(err));
+      });
   });
 }
 
@@ -186,6 +196,57 @@ export async function enableNotifications() {
   toast(p === "granted" ? "Notifications turned on 🔔" : "Notifications are blocked in your browser settings.");
   scheduleRender();
 }
+
+/* ------------------------------------------------------------------ notification check (More → Notification check) */
+actions.checkNotifications = async () => {
+  const info = buildInfo();
+  const perm = await pushPermission();
+  let partnerTokens = null, partnerErr = "";
+  if (state.partner) {
+    try { partnerTokens = (await getDoc(doc(db, "pushTokens", state.partner.uid))).data()?.tokens || []; }
+    catch (err) { partnerErr = err?.code === "permission-denied" ? "Blocked by Firestore rules: publish the latest firestore.rules." : (err?.code || err?.message); }
+  }
+  const pName = esc(state.partner?.name || "Your person");
+  const row = (ok, label, detail = "") => `
+    <div class="chk ${ok ? "ok" : "bad"}"><span>${ok ? "✅" : "❌"}</span><div><b>${label}</b>${detail ? `<small>${esc(detail)}</small>` : ""}</div></div>`;
+  const rows = [
+    row(info.isNative, "Running as the installed app", info.isNative ? "" : "Notifications only work in the Android app."),
+    row(info.canReceive, "Built with google-services.json", info.canReceive ? "" : "Upload google-services.json to GitHub and rebuild."),
+    row(info.hasKey && info.httpPlugin, "Built with the sending key", info.hasKey ? "" : "GitHub secret FCM_SERVICE_ACCOUNT was missing when this APK was built."),
+    row(perm === "granted", "Notification permission", perm === "granted" ? "" : `Status: ${perm}. Turn on notifications for Asaumi in App info.`),
+    row(!!getPushToken(), "This phone registered with Firebase", getPushToken() ? "" : lastPushError() || "Not registered yet. Tap “Register again”."),
+    row(pushSave.saved === true, "This phone saved to Firebase", pushSave.saved === true ? "" : pushSave.error || "Not saved yet."),
+    row(!!partnerTokens?.length, `${pName}'s phone registered`, partnerErr || (partnerTokens?.length ? `${partnerTokens.length} device(s)` : `${pName} must open the new app once and allow notifications.`))
+  ].join("");
+  const m = openModal(`
+    <div class="sheet-head"><h2>Notification check</h2><button class="icon-btn sm" data-close aria-label="Close">${ICONS.close}</button></div>
+    <div class="chk-list">${rows}</div>
+    <div class="chk-result" id="chk-result"></div>
+    <div class="chk-actions">
+      <button class="btn btn-ghost btn-sm" data-reg>Register again</button>
+      <button class="btn btn-ghost btn-sm" data-self>Test on this phone</button>
+      <button class="btn btn-primary btn-sm" data-partner>Test on ${pName}'s phone</button>
+    </div>`, { cls: "sheet" });
+  const out = $("#chk-result", m);
+  const show = (results, label) => {
+    out.innerHTML = results.map(r => `<div class="chk ${r.ok ? "ok" : "bad"}"><span>${r.ok ? "✅" : "❌"}</span><div><b>${esc(label)}: ${r.ok ? "sent" : "failed"}</b>${r.ok ? "" : `<small>${esc(`${r.status ? `${r.status} · ` : ""}${r.error || ""}`)}</small>`}</div></div>`).join("");
+  };
+  $("[data-reg]", m).addEventListener("click", async () => {
+    out.textContent = "Registering…";
+    await registerPush();
+    setTimeout(() => { m.close(); actions.checkNotifications(); }, 2500);
+  });
+  $("[data-self]", m).addEventListener("click", () => {
+    const t = getPushToken();
+    if (!t) { show([{ ok: false, error: "This phone isn't registered yet." }], "Test"); return; }
+    out.textContent = "Sending in 5 seconds. Press the Home button now, because notifications don't pop up while Asaumi is open.";
+    setTimeout(async () => show(await sendPush([t], { body: "Test notification ✓ Asaumi can reach this phone.", page: "more", tag: "test" }), "Test on this phone"), 5000);
+  });
+  $("[data-partner]", m).addEventListener("click", async () => {
+    out.textContent = "Sending…";
+    show(await sendPush(partnerTokens || [], { body: `${myName()} have send you message`, page: "chat", tag: "test" }), `Test on ${state.partner?.name || "partner"}'s phone`);
+  });
+};
 
 // Called for each new notification doc that arrives while the app is open
 export function announceNotification(n) {

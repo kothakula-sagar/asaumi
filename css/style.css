@@ -507,6 +507,18 @@ body.has-photo .glow { opacity: .35; }
 .notif-main small { color: var(--muted); font-size: 12.5px; }
 @media (max-width: 560px) { .modal-wrap.sheet { place-items: start center; } .sheet .modal { margin-top: calc(8px + var(--safe-t)); } }
 
+/* notification check */
+.chk-list, .chk-result { display: grid; gap: 8px; }
+.chk-result:empty { display: none; }
+.chk-result { font-size: 14px; font-weight: 600; color: var(--muted); }
+.chk { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 16px; text-align: left; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .18); }
+.chk.bad { background: rgba(255, 92, 138, .16); border-color: rgba(255, 92, 138, .45); }
+.chk > span { flex: none; font-size: 16px; }
+.chk b { display: block; font-size: 14.5px; color: #fff; }
+.chk small { display: block; margin-top: 2px; font-size: 12.5px; color: #ffe0ea; word-break: break-word; }
+.chk-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.chk-actions .btn { flex: 1 1 auto; }
+
 /* image viewer */
 .modal-wrap.viewer .modal-backdrop { background: rgba(10, 4, 40, .88); }
 .modal-wrap.viewer .modal { max-width: none; width: auto; max-height: none; padding: 0; background: none; border: 0; box-shadow: none; overflow: visible; }

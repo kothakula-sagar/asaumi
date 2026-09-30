@@ -85,6 +85,7 @@ function renderMore() {
           <span class="set-main"><b>Notifications</b><small>${esc(n.label)}</small></span>
           ${n.btn ? '<button class="btn btn-primary btn-sm" data-action="enableNotifications">Turn on</button>' : ""}
         </div>
+        <button class="set-row" data-action="checkNotifications"><span class="set-ico">${ICONS.check}</span><span class="set-main"><b>Notification check</b><small>Test that notifications reach both phones</small></span><span class="chev">›</span></button>
       </div>
 
       <div class="glass card">
