@@ -122,7 +122,7 @@ function notifRow(n) {
 actions.openNotifications = () => {
   const msgs = unreadMessages();
   const rows = [
-    msgs ? notifRow({ type: "message", text: `${state.partner?.name || "Your person"} have send you message${msgs > 1 ? ` (${msgs})` : ""}`, fromName: state.partner?.name, createdAt: state.messages.at(-1)?.createdAt }) : "",
+    msgs ? notifRow({ type: "message", text: `Asaumi you have message${msgs > 1 ? ` (${msgs})` : ""}`, fromName: state.partner?.name, createdAt: state.messages.at(-1)?.createdAt }) : "",
     ...state.notifications.slice(0, 40).map(notifRow)
   ].join("");
   const m = openModal(`
@@ -244,7 +244,7 @@ actions.checkNotifications = async () => {
   });
   $("[data-partner]", m).addEventListener("click", async () => {
     out.textContent = "Sending…";
-    show(await sendPush(partnerTokens || [], { body: `${myName()} have send you message`, page: "chat", tag: "test" }), `Test on ${state.partner?.name || "partner"}'s phone`);
+    show(await sendPush(partnerTokens || [], { body: "Asaumi you have message", page: "chat", tag: "test" }), `Test on ${state.partner?.name || "partner"}'s phone`);
   });
 };
 

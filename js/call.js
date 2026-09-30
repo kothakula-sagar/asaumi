@@ -286,7 +286,7 @@ async function startCall(kind = "video") {
     setState("ringing");
     pushPartner({
       title: kind === "audio" ? "📞 Asaumi" : "📹 Asaumi",
-      body: `${myName()} is ${kind === "audio" ? "calling" : "video calling"} you`,
+      body: kind === "audio" ? "Asaumi you have a call" : "Asaumi you have a video call",
       page: "home", tag: "call", channel: CHANNELS.calls, ttl: 45
     });
   } catch (err) {
@@ -336,7 +336,7 @@ export function watchIncoming() {
         closeIncoming();
         getDoc(doc(db, "calls", was.id)).then(s => {
           const st = s.data()?.status;
-          if (st === "missed") toast(`📹 You missed a call from ${realNameOf(was.data.callerId, was.data.callerName)}.`);
+          if (st === "missed") toast("📹 Asaumi you have a missed call");
         }).catch(() => {});
       }
       const next = fresh.find(c => c.id !== incoming?.id);
@@ -381,7 +381,7 @@ function showIncoming(c) {
   $('[data-ia="accept"]', root()).addEventListener("click", () => acceptCall(c));
   $('[data-ia="decline"]', root()).addEventListener("click", () => declineCall(c));
   startRinging();
-  systemNotify("📹 Incoming call", `${caller.name || "Your person"} is calling you`, "call");
+  systemNotify("❤️ Asaumi", video ? "Asaumi you have a video call" : "Asaumi you have a call", "call");
 }
 
 function closeIncoming() {
@@ -493,7 +493,7 @@ async function finish(reason = "ended") {
   updateDoc(c.ref, upd).catch(() => {});
   cleanCandidates(c.ref);
   if (status === "missed") {
-    notifyPartner("missed_call", `You missed a ${c.kind === "audio" ? "call" : "video call"} from ${myName()}`, { callId: c.id });
+    notifyPartner("missed_call", "Asaumi you have a missed call", { callId: c.id });
   }
   const title = `${c.kind === "audio" ? "Audio" : "Video"} call ended`;
   if (status === "failed") showEnded("Couldn't connect", "The connection couldn't be established. Please try again.");

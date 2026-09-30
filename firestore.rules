@@ -43,8 +43,12 @@ service cloud.firestore {
         && incoming().to != me()
         && incoming().type in ['text', 'image', 'video', 'voice']
         && (!('text' in incoming()) || incoming().text.size() <= 4000);
-      // the receiver marks delivered / read — nothing else
-      allow update: if isMember() && resource.data.to == me() && onlyChanges(['deliveredAt', 'readAt']);
+      // the receiver marks delivered / read; the sender can edit the text of their own message
+      allow update: if isMember() && (
+        (resource.data.to == me() && onlyChanges(['deliveredAt', 'readAt']))
+        || (resource.data.from == me() && onlyChanges(['text', 'editedAt'])
+            && incoming().text is string && incoming().text.size() <= 4000)
+      );
       allow delete: if isMember() && resource.data.from == me();
     }
 
@@ -52,13 +56,15 @@ service cloud.firestore {
     match /memories/{id} {
       allow read: if isMember();
       allow create: if isMember() && incoming().byUid == me();
-      allow update, delete: if isMember() && resource.data.byUid == me();
+      allow update: if isMember() && resource.data.byUid == me() && incoming().byUid == me();
+      allow delete: if isMember() && resource.data.byUid == me();
     }
 
     match /memorableMovements/{id} {
       allow read: if isMember();
       allow create: if isMember() && incoming().byUid == me() && incoming().text.size() <= 400;
-      allow update, delete: if isMember() && resource.data.byUid == me();
+      allow update: if isMember() && resource.data.byUid == me() && incoming().byUid == me() && incoming().text.size() <= 400;
+      allow delete: if isMember() && resource.data.byUid == me();
     }
 
     // Live-call signalling + metadata (no media is ever stored)

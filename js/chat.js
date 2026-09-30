@@ -1,5 +1,5 @@
 import {
-  doc, collection, addDoc, deleteDoc, serverTimestamp, writeBatch
+  doc, collection, addDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, viewImage, avatarHtml, presenceDot,
@@ -197,7 +197,7 @@ function itemHtml(it, showDate) {
         <span class="swipe-ico">${ICONS.reply}</span>
         ${quoteHtml(it.replyTo)}
         ${contentHtml(it)}
-        <div class="meta"><span>${fmtTime(it.createdAt)}</span>${mine ? `<span class="status">${statusHtml(it)}</span>` : ""}</div>
+        <div class="meta">${it.editedAt ? '<span class="edited">edited</span>' : ""}<span>${fmtTime(it.createdAt)}</span>${mine ? `<span class="status">${statusHtml(it)}</span>` : ""}</div>
       </div>
     </div>`;
 }
@@ -237,7 +237,7 @@ export function updateChat() {
     const showDate = !prevDate || !sameDay(prevDate, d);
     prevDate = d;
     seen.add(it.id);
-    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.status}|${it.duration}|${it.replyTo?.id}|${Math.floor(d.getTime() / 60000)}`;
+    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.status}|${it.duration}|${it.replyTo?.id}|${!!it.editedAt}|${Math.floor(d.getTime() / 60000)}`;
     let r = rendered.get(it.id);
     if (!r || r.sig !== sig) {
       const el = document.createElement("div");
@@ -395,7 +395,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) mark
 export function onIncomingMessage() {
   const inChat = state.view === "chat" && !document.hidden;
   if (inChat) return;
-  const text = `${partnerName()} have send you message`;
+  const text = "Asaumi you have message";
   ping();
   if (!document.hidden) toast(`💬 ${text}`);
   systemNotify("❤️ Asaumi", text, "message");
@@ -407,7 +407,7 @@ async function sendMessage(data) {
   const ref = await addDoc(collection(db, "messages"), {
     ...data, from: uid(), to: state.partner.uid, createdAt: serverTimestamp()
   });
-  pushPartner({ body: `${myName()} have send you message`, page: "chat", tag: "chat" });
+  pushPartner({ body: "Asaumi you have message", page: "chat", tag: "chat" });
   return ref;
 }
 
@@ -832,6 +832,33 @@ function copyText(text) {
   }
 }
 
+function editMessage(m) {
+  const isText = m.type === "text";
+  const modal = openModal(`
+    <h2>${isText ? "Edit message" : "Edit caption"}</h2>
+    <label class="field"><textarea maxlength="4000" placeholder="${isText ? "Message…" : "Caption (optional)"}">${esc(m.text || "")}</textarea></label>
+    <p class="form-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close>Cancel</button>
+      <button class="btn btn-primary" data-save>Save</button>
+    </div>`);
+  const t = $("textarea", modal), err = $(".form-error", modal), save = $("[data-save]", modal);
+  setTimeout(() => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }, 60);
+  save.addEventListener("click", async () => {
+    const text = t.value.replace(/\s+$/, "");
+    if (isText && !text.trim()) { err.textContent = "Message can't be empty. Use Delete to remove it."; return; }
+    if (text === (m.text || "")) { modal.close(); return; }
+    save.disabled = true;
+    try {
+      await updateDoc(doc(db, "messages", m.id), { text, editedAt: serverTimestamp() });
+      modal.close();
+    } catch (e) {
+      err.textContent = friendlyError(e, "Couldn't edit the message.");
+      save.disabled = false;
+    }
+  });
+}
+
 function openMessageMenu(id) {
   if (Date.now() - lastMenuAt < 800) return;
   lastMenuAt = Date.now();
@@ -842,6 +869,7 @@ function openMessageMenu(id) {
     <div class="menu-preview">${esc(previewOf(m) || "Message")}</div>
     <div class="msg-menu">
       <button data-m="reply">${ICONS.reply}<span>Reply</span></button>
+      ${mine && m.type !== "voice" ? `<button data-m="edit">${ICONS.pencil}<span>${m.type === "text" ? "Edit" : m.text ? "Edit caption" : "Add caption"}</span></button>` : ""}
       ${m.text ? `<button data-m="copy">${ICONS.copy}<span>Copy text</span></button>` : ""}
       ${mine ? `<button data-m="delete" class="danger">${ICONS.trash}<span>Delete for both</span></button>` : ""}
     </div>
@@ -851,6 +879,7 @@ function openMessageMenu(id) {
     if (!b) return;
     modal.close();
     if (b.dataset.m === "reply") setReply(id);
+    else if (b.dataset.m === "edit") editMessage(m);
     else if (b.dataset.m === "copy") copyText(m.text);
     else if (b.dataset.m === "delete") {
       const ok = await confirmDialog({ icon: "trash", title: "Delete message?", text: "It will be removed for both of you.", ok: "Delete", danger: true });

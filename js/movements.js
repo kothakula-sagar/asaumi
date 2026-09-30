@@ -1,5 +1,5 @@
 import {
-  doc, collection, addDoc, deleteDoc, serverTimestamp
+  doc, collection, addDoc, updateDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, whenDate, nowLocalInput,
@@ -44,17 +44,17 @@ export function movementsSection() {
       </div>`}`;
 }
 
-function addMovementModal() {
+function addMovementModal(existing = null) {
   const m = openModal(`
     <div class="detail-emoji">❤️</div>
-    <h2>New Memorable Movement</h2>
+    <h2>${existing ? "Edit Memorable Movement" : "New Memorable Movement"}</h2>
     <label class="field">
       <span>The moment</span>
-      <textarea maxlength="400" placeholder="e.g. Our first late-night conversation."></textarea>
+      <textarea maxlength="400" placeholder="e.g. Our first late-night conversation.">${esc(existing?.text || "")}</textarea>
     </label>
     <label class="field">
       <span>Date &amp; time</span>
-      <input type="datetime-local" value="${nowLocalInput()}" />
+      <input type="datetime-local" value="${esc(existing?.when || nowLocalInput())}" />
     </label>
     <p class="form-error"></p>
     <div class="modal-actions">
@@ -69,11 +69,17 @@ function addMovementModal() {
     save.disabled = true;
     save.innerHTML = spinner("sm dark");
     try {
+      if (existing) {
+        await updateDoc(doc(db, "memorableMovements", existing.id), { text: text.value.trim(), when: when.value, editedAt: serverTimestamp() });
+        m.close();
+        toast("Memorable Movement updated ❤️");
+        return;
+      }
       const ref = await addDoc(collection(db, "memorableMovements"), {
         text: text.value.trim(), when: when.value,
         byUid: uid(), byName: myName(), createdAt: serverTimestamp()
       });
-      notifyPartner("movement", `${myName()} added a memorable movement`, { refId: ref.id });
+      notifyPartner("movement", "Asaumi you have a new memorable movement", { refId: ref.id });
       m.close();
       toast("Memorable Movement saved ❤️");
     } catch (e) {
@@ -100,7 +106,8 @@ function openMovement(id) {
       <div><span>Added</span><b>${esc(fmtDateTime(x.createdAt))}</b></div>
     </div>
     <div class="modal-actions single"><button class="btn btn-primary" data-close>Close</button></div>
-    ${mine ? '<button class="del-link" data-del>Delete this movement</button>' : ""}`);
+    ${mine ? `<div class="detail-links"><button class="edit-link" data-edit>${ICONS.pencil} Edit</button><button class="del-link" data-del>Delete this movement</button></div>` : ""}`);
+  $("[data-edit]", m)?.addEventListener("click", () => { m.close(); addMovementModal(x); });
   $("[data-del]", m)?.addEventListener("click", async () => {
     if (!(await confirmDialog({ icon: "trash", title: "Delete movement?", text: "It will be removed for both of you.", ok: "Delete", danger: true }))) return;
     try { await deleteDoc(doc(db, "memorableMovements", id)); m.close(); toast("Movement deleted"); }
@@ -109,6 +116,6 @@ function openMovement(id) {
 }
 
 Object.assign(actions, {
-  addMovement: addMovementModal,
+  addMovement: () => addMovementModal(),
   openMovement: d => openMovement(d.id)
 });

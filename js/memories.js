@@ -1,5 +1,5 @@
 import {
-  doc, collection, setDoc, addDoc, deleteDoc, serverTimestamp
+  doc, collection, setDoc, addDoc, updateDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, askPassword, sha256, cld,
@@ -170,28 +170,31 @@ function memoryCard(m) {
     </article>`;
 }
 
-/* ------------------------------------------------------------------ add */
-function addMemoryModal() {
+/* ------------------------------------------------------------------ add / edit */
+function addMemoryModal(existing = null) {
   let file = null;
+  const editing = !!existing;
   const m = openModal(`
-    <h2>Create a memory</h2>
+    <h2>${editing ? "Edit memory" : "Create a memory"}</h2>
     <label class="file-pick" id="pick">
       <input type="file" accept="image/*" />
-      <span class="big">📷</span><span>Choose a photo</span><small>JPG or PNG · up to ${LIMITS.imageMB} MB</small>
+      ${editing
+        ? `<img src="${esc(cld(existing.url, "f_auto,q_auto,w_900"))}" alt="" /><span class="pick-change">Change photo</span>`
+        : `<span class="big">📷</span><span>Choose a photo</span><small>JPG or PNG · up to ${LIMITS.imageMB} MB</small>`}
     </label>
     <label class="field">
       <span>Title</span>
-      <input type="text" name="title" maxlength="60" placeholder="e.g. Goa Trip" />
+      <input type="text" name="title" maxlength="60" placeholder="e.g. Goa Trip" value="${esc(existing?.title || (editing ? memoryTitle(existing) : ""))}" />
     </label>
     <label class="field">
       <span>The memory</span>
-      <textarea name="text" maxlength="3000" placeholder="One of those days we will always remember…"></textarea>
+      <textarea name="text" maxlength="3000" placeholder="One of those days we will always remember…">${esc(existing?.text || "")}</textarea>
     </label>
     <div class="progress" hidden><span></span></div>
     <p class="form-error"></p>
     <div class="modal-actions">
       <button class="btn btn-ghost" data-close>Cancel</button>
-      <button class="btn btn-primary" data-save>Save memory</button>
+      <button class="btn btn-primary" data-save>${editing ? "Save changes" : "Save memory"}</button>
     </div>`, { dismissable: false });
   const pick = $("#pick", m), input = $("input", pick), title = $("[name=title]", m), text = $("[name=text]", m);
   const err = $(".form-error", m), bar = $(".progress", m), save = $("[data-save]", m), cancel = $("[data-close]", m);
@@ -212,20 +215,33 @@ function addMemoryModal() {
   });
 
   save.addEventListener("click", async () => {
-    if (!file) { err.textContent = "Choose a photo first."; return; }
+    if (!file && !editing) { err.textContent = "Choose a photo first."; return; }
     if (!title.value.trim()) { err.textContent = "Give this memory a title 💭"; title.focus(); return; }
     err.textContent = "";
     save.disabled = cancel.disabled = true;
-    save.innerHTML = `${spinner("sm dark")} Uploading…`;
-    bar.hidden = false;
+    save.innerHTML = `${spinner("sm dark")} ${file ? "Uploading…" : "Saving…"}`;
     try {
+      if (editing) {
+        const changes = { title: title.value.trim(), text: text.value.trim(), editedAt: serverTimestamp() };
+        if (file) {
+          bar.hidden = false;
+          const up = await upload(await prepareImage(file), { sub: "memories", onProgress: p => ($("span", bar).style.width = `${Math.round(p * 100)}%`) });
+          Object.assign(changes, { url: up.secure_url, publicId: up.public_id, width: up.width, height: up.height });
+        }
+        await updateDoc(doc(db, "memories", existing.id), changes);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        m.close();
+        toast("Memory updated 💜");
+        return;
+      }
+      bar.hidden = false;
       const up = await upload(await prepareImage(file), { sub: "memories", onProgress: p => ($("span", bar).style.width = `${Math.round(p * 100)}%`) });
       const ref = await addDoc(collection(db, "memories"), {
         url: up.secure_url, publicId: up.public_id, width: up.width, height: up.height,
         title: title.value.trim(), text: text.value.trim(),
         byUid: uid(), byName: myName(), createdAt: serverTimestamp()
       });
-      notifyPartner("memory", `${myName()} added memories`, { refId: ref.id });
+      notifyPartner("memory", "Asaumi you have new memories", { refId: ref.id });
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       m.close();
       toast("Memory saved 💜");
@@ -255,7 +271,8 @@ function openMemory(id) {
       <button class="btn btn-ghost" data-close>Close</button>
       <button class="btn btn-primary" data-dl>${ICONS.download} Download Image</button>
     </div>
-    ${mine ? '<button class="del-link" data-del>Delete this memory</button>' : ""}`, { cls: "wide" });
+    ${mine ? `<div class="detail-links"><button class="edit-link" data-edit>${ICONS.pencil} Edit</button><button class="del-link" data-del>Delete this memory</button></div>` : ""}`, { cls: "wide" });
+  $("[data-edit]", m)?.addEventListener("click", () => { m.close(); addMemoryModal(x); });
   $("[data-dl]", m).addEventListener("click", async e => {
     const b = e.currentTarget;
     b.disabled = true;
