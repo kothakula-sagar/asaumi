@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "573209589312",
+    "project_id": "anu-me",
+    "storage_bucket": "anu-me.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:573209589312:android:8a8c62834aac80d048d1a5",
+        "android_client_info": {
+          "package_name": "com.asaumi.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIYlwSnHO21KKcfPb9z0hTYt4VlupmREQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
