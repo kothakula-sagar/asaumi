@@ -24,11 +24,31 @@ let listenersAdded = false;
 function addPushListeners() {
   if (listenersAdded || !Push) return;
   listenersAdded = true;
-  Push.addListener("registration", t => { currentToken = t.value; tokenHandler?.(t.value); });
+  Push.addListener("registration", t => {
+    currentToken = t.value;
+    pushError = "";
+    retries = 0;
+    clearTimeout(retryTimer);
+    tokenHandler?.(t.value);
+  });
   Push.addListener("registrationError", e => {
     console.warn("[asaumi] push registration failed", e);
     pushError = `Registration failed: ${e?.error || JSON.stringify(e)}`;
+    // SERVICE_NOT_AVAILABLE is usually temporary (Google Play services busy / network) — retry.
+    if (retries < 6) {
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => { retries += 1; Push.register().catch(() => {}); }, 15000 * 2 ** retries);
+    }
   });
+}
+
+let retries = 0, retryTimer = null;
+
+// Try again when the app comes back to the screen and this phone still has no token.
+export function retryPushIfNeeded() {
+  if (!pushAvailable() || currentToken || !listenersAdded) return;
+  retries = 0;
+  Push.register().catch(() => {});
 }
 
 let pushError = "";

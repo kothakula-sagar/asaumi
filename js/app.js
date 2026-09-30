@@ -11,7 +11,7 @@ import {
 import {
   startPresence, stopPresence, unreadNotifications, unreadMessages, announceNotification, registerPush, unregisterPush
 } from "./notify.js";
-import { isNative, onNotificationTap, clearDelivered, onBackButton, onResume, minimizeApp } from "./native.js";
+import { isNative, onNotificationTap, clearDelivered, onBackButton, onResume, minimizeApp, retryPushIfNeeded } from "./native.js";
 import { mountChat, updateChat, markDelivered, onIncomingMessage, resetChat } from "./chat.js";
 import { watchIncoming, stopWatchingIncoming } from "./call.js";
 import { lockMemories } from "./memories.js";
@@ -78,7 +78,12 @@ onNotificationTap(page => {
   const view = page in views ? page : "home";
   if (state.user) go(view); else pendingPage = view;
 });
-onResume(() => { if (state.user) clearDelivered(); });
+onResume(() => {
+  if (!state.user) return;
+  clearDelivered();
+  retryPushIfNeeded();
+});
+addEventListener("online", () => { if (state.user) retryPushIfNeeded(); });
 onBackButton(() => {
   const top = $("#modal-root").lastElementChild;
   if (top) { if (top.dismissable) top.close(); return; }
