@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#3b1fb8" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Asaumi" />
+  <title>Asaumi</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- Background image → purple/blue overlay → glass -->
+  <div class="bg" aria-hidden="true">
+    <img id="bg-img" class="bg-img" alt="" hidden />
+    <i class="glow g1"></i><i class="glow g2"></i><i class="glow g3"></i>
+    <div class="bg-overlay"></div>
+  </div>
+
+  <!-- Splash while Firebase restores the session -->
+  <div id="splash" class="splash">
+    <div class="splash-heart">❤️</div>
+    <b>Asaumi</b>
+  </div>
+
+  <!-- Login (no sign-up — the two accounts are created in Firebase) -->
+  <main id="auth" class="auth" hidden>
+    <form id="login-form" class="glass auth-card" novalidate>
+      <div class="auth-orb">❤️</div>
+      <h1>Asaumi</h1>
+      <p class="auth-sub">A little world for two.</p>
+      <label class="field">
+        <span>Email</span>
+        <input type="email" name="email" autocomplete="email" inputmode="email" required placeholder="you@example.com" />
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <span class="pw-wrap">
+          <input type="password" name="password" autocomplete="current-password" required placeholder="••••••••" />
+          <button type="button" id="pw-toggle" class="pw-toggle" aria-label="Show password" data-icon="eye"></button>
+        </span>
+      </label>
+      <p class="form-error" id="login-error" role="alert"></p>
+      <button class="btn btn-primary btn-block" type="submit">Login</button>
+      <button class="link-btn" type="button" id="forgot-password">Forgot Password?</button>
+      <p class="auth-foot"><span data-icon="lock"></span> Private · only for the two of you</p>
+    </form>
+  </main>
+
+  <!-- App -->
+  <div id="app" class="app" hidden>
+    <div id="net-banner" class="net-banner" hidden>You're offline — messages will send when you're back.</div>
+    <header id="topbar" class="topbar"></header>
+
+    <main id="view" class="view"></main>
+    <section id="chat-view" class="chat-view" hidden></section>
+
+    <nav class="nav glass" aria-label="Main">
+      <button class="nav-item" data-nav="home"><span class="nav-ico" data-icon="home"></span><span>Home</span></button>
+      <button class="nav-item" data-nav="chat"><span class="nav-ico"><span data-icon="chat"></span><b id="chat-badge" class="badge" hidden></b></span><span>Chat</span></button>
+      <button class="nav-item nav-center" data-nav="asaumi"><span class="nav-orb">❤️</span><span>Asaumi</span></button>
+      <button class="nav-item" data-nav="memories"><span class="nav-ico" data-icon="lock"></span><span>Memories</span></button>
+      <button class="nav-item" data-nav="more"><span class="nav-ico" data-icon="dots"></span><span>More</span></button>
+    </nav>
+  </div>
+
+  <div id="call-root"></div>
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <noscript><p style="color:#fff;text-align:center;padding:40px">Asaumi needs JavaScript turned on.</p></noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
