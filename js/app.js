@@ -13,7 +13,7 @@ import {
   startPresence, stopPresence, unreadNotifications, unreadMessages, announceNotification, registerPush, unregisterPush
 } from "./notify.js";
 import { isNative, onNotificationTap, clearDelivered, onBackButton, onResume, minimizeApp, retryPushIfNeeded } from "./native.js";
-import { mountChat, updateChat, markDelivered, markRead, onIncomingMessage, resetChat } from "./chat.js";
+import { mountChat, updateChat, markDelivered, markRead, onIncomingMessage, resetChat, renderOurStickers } from "./chat.js";
 import { watchIncoming, stopWatchingIncoming } from "./call.js";
 import "./memories.js";
 import { renderLock, resetPin } from "./lock.js";
@@ -40,7 +40,7 @@ onAuthStateChanged(auth, async user => {
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: 60, loaded: {},
       memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null,
-      locations: {}, myPos: null, birthdays: null,
+      locations: {}, myPos: null, birthdays: null, stickers: [],
       view: "home", locked: false, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pin: null, pinReset: false
     });
     closeAllModals();
@@ -181,6 +181,11 @@ function subscribe() {
     }
     firstNotif = false;
     scheduleRender();
+  }, onErr));
+
+  sub(onSnapshot(query(collection(db, "stickers"), orderBy("createdAt", "desc")), snap => {
+    state.stickers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderOurStickers();
   }, onErr));
 
   sub(onSnapshot(collection(db, "locations"), snap => {

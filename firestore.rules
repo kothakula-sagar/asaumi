@@ -47,7 +47,7 @@ service cloud.firestore {
       allow create: if isMember()
         && incoming().from == me()
         && incoming().to != me()
-        && incoming().type in ['text', 'image', 'video', 'voice']
+        && incoming().type in ['text', 'image', 'video', 'voice', 'sticker']
         && (!('text' in incoming()) || incoming().text.size() <= 4000);
       // the receiver marks delivered / read; the sender can edit the text of their own message
       allow update: if isMember() && (
@@ -56,6 +56,13 @@ service cloud.firestore {
             && incoming().text is string && incoming().text.size() <= 4000)
       );
       allow delete: if isMember() && resource.data.from == me();
+    }
+
+    // "Our stickers": a shared sticker pack (pictures live in Cloudinary)
+    match /stickers/{id} {
+      allow read: if isMember();
+      allow create: if isMember() && incoming().byUid == me() && incoming().url is string;
+      allow delete: if isMember();
     }
 
     // Shared memories (image lives in Cloudinary, only the URL is stored)

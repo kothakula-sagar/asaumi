@@ -8,6 +8,8 @@ import {
 } from "./core.js";
 import { typingPing, typingStop, systemNotify, pushPartner } from "./notify.js";
 import { LIMITS } from "./config.js";
+import { stickerPanes, bindStickerPanel, renderOurStickers, saveAsSticker } from "./stickers.js";
+export { renderOurStickers };
 
 const EMOJIS = "❤️ 😘 🥰 😍 😊 😂 🤣 😅 😇 🙈 😴 🥺 😢 😭 😤 😡 🤗 🤔 😌 😋 😎 🤍 💜 💙 💕 💖 💞 💫 ✨ 🌙 ⭐ 🌸 🌹 🌈 ☕ 🍫 🍕 🎶 🎉 🎂 🙏 👍 👌 🤞 👏 🫶 💪 🔥 💯".split(" ");
 const coarse = matchMedia("(pointer: coarse)").matches;
@@ -55,7 +57,15 @@ export function mountChat() {
 
       <div class="composer glass" id="composer" data-mode="text">
         <div class="emoji-panel" id="emoji-panel" hidden>
-          ${EMOJIS.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join("")}
+          <div class="ep-tabs">
+            <button type="button" data-tab="emoji" class="on">😊 Emoji</button>
+            <button type="button" data-tab="anim">✨ Stickers</button>
+            <button type="button" data-tab="ours">⭐ Ours</button>
+          </div>
+          <div class="ep-pane" data-pane="emoji">
+            ${EMOJIS.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join("")}
+          </div>
+          ${stickerPanes()}
         </div>
         <div class="reply-bar" id="reply-bar" hidden>
           <span class="rb-ico">${ICONS.reply}</span>
@@ -167,6 +177,8 @@ function contentHtml(m) {
             <div class="v-info"><span class="v-dur">${fmtDuration(m.media?.duration)}</span><span>🎤 ${esc(m.from === uid() ? "You" : realNameOf(m.from))}</span></div>
           </div>
         </div>`;
+    case "sticker":
+      return `<img class="sticker-img" src="${esc(m.media?.url)}" alt="Sticker" loading="lazy" />`;
     case "call":
       return "";
     default:
@@ -425,6 +437,15 @@ function sendText() {
     autosize();
     syncSendButton();
   });
+  requestAnimationFrame(() => scrollBottom(true));
+}
+
+function sendSticker({ url, kind }) {
+  if (!url) return;
+  const reply = takeReply();
+  sendMessage({ type: "sticker", text: "", media: { url, kind }, ...(reply ? { replyTo: reply } : {}) })
+    .catch(err => { if (err.message !== "no partner") toast(friendlyError(err, "Sticker couldn't be sent.")); });
+  navigator.vibrate?.(10);
   requestAnimationFrame(() => scrollBottom(true));
 }
 
@@ -693,6 +714,7 @@ function bindComposer() {
     syncSendButton();
     if (!coarse) t.focus();
   });
+  bindStickerPanel(els.emoji, sendSticker);
   $("#c-file").addEventListener("change", e => {
     const f = e.target.files[0];
     e.target.value = "";
@@ -719,7 +741,8 @@ function previewOf(m) {
   const s = {
     image: t ? `📷 ${t}` : "📷 Photo",
     video: t ? `🎬 ${t}` : "🎬 Video",
-    voice: `🎤 Voice message (${fmtDuration(m.media?.duration)})`
+    voice: `🎤 Voice message (${fmtDuration(m.media?.duration)})`,
+    sticker: "🎨 Sticker"
   }[m.type] || t;
   return s.length > 120 ? `${s.slice(0, 120)}…` : s;
 }
@@ -869,7 +892,8 @@ function openMessageMenu(id) {
     <div class="menu-preview">${esc(previewOf(m) || "Message")}</div>
     <div class="msg-menu">
       <button data-m="reply">${ICONS.reply}<span>Reply</span></button>
-      ${mine && m.type !== "voice" ? `<button data-m="edit">${ICONS.pencil}<span>${m.type === "text" ? "Edit" : m.text ? "Edit caption" : "Add caption"}</span></button>` : ""}
+      ${(m.type === "image" || m.type === "sticker") && m.media?.url ? `<button data-m="sticker">${ICONS.sparkle}<span>Save as sticker</span></button>` : ""}
+      ${mine && m.type !== "voice" && m.type !== "sticker" ? `<button data-m="edit">${ICONS.pencil}<span>${m.type === "text" ? "Edit" : m.text ? "Edit caption" : "Add caption"}</span></button>` : ""}
       ${m.text ? `<button data-m="copy">${ICONS.copy}<span>Copy text</span></button>` : ""}
       ${mine ? `<button data-m="delete" class="danger">${ICONS.trash}<span>Delete for both</span></button>` : ""}
     </div>
@@ -880,6 +904,7 @@ function openMessageMenu(id) {
     modal.close();
     if (b.dataset.m === "reply") setReply(id);
     else if (b.dataset.m === "edit") editMessage(m);
+    else if (b.dataset.m === "sticker") saveAsSticker(m.media.url);
     else if (b.dataset.m === "copy") copyText(m.text);
     else if (b.dataset.m === "delete") {
       const ok = await confirmDialog({ icon: "trash", title: "Delete message?", text: "It will be removed for both of you.", ok: "Delete", danger: true });

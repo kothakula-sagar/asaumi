@@ -18,7 +18,8 @@ export function messagePreview(m) {
   const who = m.from === uid() ? "You: " : "";
   const body = {
     image: "📷 Photo", video: "🎬 Video",
-    voice: `🎤 Voice message (${fmtDuration(m.media?.duration)})`
+    voice: `🎤 Voice message (${fmtDuration(m.media?.duration)})`,
+    sticker: "🎨 Sticker"
   }[m.type] || m.text || "";
   return who + body;
 }
