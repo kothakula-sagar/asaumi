@@ -8,6 +8,7 @@ import { movementsSection } from "./movements.js";
 import { togetherCard } from "./together.js";
 import { weatherCard } from "./weather.js";
 import { partnerMealsCard } from "./meals.js";
+import { relationshipCard, storyLine } from "./relationship.js";
 import { birthdayBanner } from "./birthday.js";
 
 function greeting() {
@@ -63,6 +64,7 @@ function renderHome() {
 
     ${birthdayBanner()}
     <div class="home-grid">
+      ${relationshipCard()}
       ${togetherCard()}
       ${weatherCard()}
       ${partnerMealsCard()}
@@ -145,6 +147,7 @@ function renderAsaumi() {
       <h1>❤️ ${esc(appName())}</h1>
       <p class="us-sub">A little world for two.</p>
       <p class="us-names">${esc(names.join(" & "))}</p>
+      ${storyLine() ? `<p class="us-story">${esc(storyLine())}</p>` : ""}
       <p class="presence-line center ${p && isOnline(p.uid) ? "on" : ""}">${p ? `<i></i>${esc(partnerName())} · ${esc(statusText(p.uid))}` : "Waiting for your person ❤️"}</p>
       <div class="us-actions">
         <button class="us-act" data-nav="chat"><span>${ICONS.chat}</span>Chat</button>

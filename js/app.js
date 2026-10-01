@@ -24,6 +24,7 @@ import { startLocation, stopLocation, checkNearChange } from "./together.js";
 import { onBirthdaysChanged, maybeShowSurprise, syncBirthdayNotification } from "./birthday.js";
 import { onLocalNotificationTap } from "./native.js";
 import { scheduleMealCheck, sinceKey } from "./meals.js";
+import { maybeShowStoryMessage } from "./relationship.js";
 
 $$("[data-icon]").forEach(el => (el.innerHTML = ICONS[el.dataset.icon]));
 applyBrandChrome(); // last saved name / icon, so the login screen shows them too
@@ -41,7 +42,7 @@ onAuthStateChanged(auth, async user => {
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: 60, loaded: {},
       memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null,
-      locations: {}, myPos: null, birthdays: null, stickers: [], meals: {},
+      locations: {}, myPos: null, birthdays: null, stickers: [], meals: {}, relationship: undefined,
       view: "home", locked: false, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pin: null, pinReset: false
     });
     closeAllModals();
@@ -103,6 +104,7 @@ hooks.onUnlock = () => {
   markRead();
   startLocation();
   maybeShowSurprise();
+  setTimeout(() => maybeShowStoryMessage(), 600); // milestone / daily "together" message, once
   scheduleMealCheck(1500); // after Home, location and weather have loaded
 };
 
@@ -199,6 +201,13 @@ function subscribe() {
   sub(onSnapshot(collection(db, "locations"), snap => {
     state.locations = Object.fromEntries(snap.docs.map(d => [d.id, d.data({ serverTimestamps: "estimate" })]));
     checkNearChange();
+    scheduleRender();
+  }, onErr));
+
+  sub(onSnapshot(doc(db, "settings", "relationship"), snap => {
+    const first = state.relationship === undefined;
+    state.relationship = snap.exists() ? snap.data() : null;
+    if (first) maybeShowStoryMessage(); // data may arrive after the PIN was entered
     scheduleRender();
   }, onErr));
 

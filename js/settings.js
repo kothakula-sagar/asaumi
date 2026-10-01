@@ -8,6 +8,7 @@ import {
 import { enableNotifications, notificationStatus } from "./notify.js";
 import { LIMITS } from "./config.js";
 import { birthdaySettingsCard } from "./birthday.js";
+import { storySettingsCard } from "./relationship.js";
 import { sharingOn } from "./together.js";
 
 function callHistory() {
@@ -88,6 +89,8 @@ function renderMore() {
           <span class="chev">›</span>
         </button>
       </div>
+
+      ${storySettingsCard()}
 
       ${birthdaySettingsCard()}
 
