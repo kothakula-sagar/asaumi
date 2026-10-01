@@ -10,6 +10,14 @@ let watchId = null, lastWrite = null, wasNear = false;
 
 export const sharingOn = () => !!state.me?.shareLocation;
 
+// Positions reused by the weather card (no second location request)
+export const myPosition = () => (sharingOn() ? state.myPos || state.locations?.[uid()] || null : null);
+export function partnerPosition() {
+  const p = state.partner && state.locations?.[state.partner.uid];
+  const at = toDate(p?.at);
+  return p && at && Date.now() - at.getTime() <= FRESH_MS ? p : null;
+}
+
 function meters(a, b) {
   const R = 6371000, rad = x => (x * Math.PI) / 180;
   const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
@@ -17,7 +25,13 @@ function meters(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-export const fmtDistance = m => (m < 1000 ? `${Math.max(10, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`);
+// Always kilometres: 5 m → 0.01 km, 450 m → 0.45 km, 3.2 km → 3.2 km, 12.4 km → 12 km, 1250 km → 1,250 km
+export function fmtDistance(m) {
+  const km = m / 1000;
+  if (km < 1) return `${Math.max(0.01, Math.round(km * 100) / 100).toFixed(2)} km`;
+  if (km < 10) return `${(Math.round(km * 10) / 10).toFixed(1)} km`;
+  return `${Math.round(km).toLocaleString("en-IN")} km`;
+}
 
 /* ------------------------------------------------------------------ my position */
 export function startLocation() {

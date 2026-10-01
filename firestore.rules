@@ -58,6 +58,12 @@ service cloud.firestore {
       allow delete: if isMember() && resource.data.from == me();
     }
 
+    // Meal check-in: one document per person per day, named <uid>_<date>
+    match /meals/{id} {
+      allow read: if isMember();
+      allow create, update: if isMember() && incoming().uid == me() && id == me() + '_' + incoming().date;
+    }
+
     // "Our stickers": a shared sticker pack (pictures live in Cloudinary)
     match /stickers/{id} {
       allow read: if isMember();

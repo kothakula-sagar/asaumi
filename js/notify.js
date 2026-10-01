@@ -70,7 +70,8 @@ export async function pushPartner(opts) {
 const PUSH_FOR = {
   memory: { page: "memories", tag: "memories" },
   movement: { page: "asaumi", tag: "movement" },
-  missed_call: { page: "home", tag: "call", channel: CHANNELS.calls }
+  missed_call: { page: "home", tag: "call", channel: CHANNELS.calls },
+  meal: { page: "home", tag: "meal" }
 };
 
 /* ------------------------------------------------------------------ in-app notifications */
@@ -104,6 +105,7 @@ const NOTIF_META = {
   memory: { icon: "🔐", nav: "memories" },
   movement: { icon: "❤️", nav: "asaumi" },
   missed_call: { icon: "📹", nav: "home" },
+  meal: { icon: "🍽️", nav: "home" },
   message: { icon: "💬", nav: "chat" }
 };
 

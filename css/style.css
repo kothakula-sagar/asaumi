@@ -347,6 +347,29 @@ body.has-photo .glow { opacity: .35; }
 .t-pulse { position: absolute; top: 50%; left: 0; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: #fff; box-shadow: 0 0 12px var(--sky-light); animation: travel 2.6s ease-in-out infinite alternate; }
 @keyframes travel { to { left: calc(100% - 12px); } }
 
+/* ---------- Weather ---------- */
+.home-grid .weather, .home-grid .meals { grid-column: 1 / -1; }
+.weather { background: radial-gradient(90% 120% at 100% 0%, rgba(253, 230, 138, .22), transparent 60%), var(--glass); }
+.wx-row { display: flex; align-items: flex-start; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, .14); }
+.weather .hcard-head + .wx-row { border-top: 0; padding-top: 0; }
+.wx-emoji { font-size: 34px; line-height: 1; flex: none; width: 44px; text-align: center; }
+.wx-emoji.pulse { animation: float 1.6s ease-in-out infinite; }
+.wx-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.wx-main b { font-size: 16px; font-weight: 800; }
+.wx-cond { font-weight: 600; color: var(--muted); }
+.wx-main small { color: var(--muted); font-size: 13px; font-weight: 600; }
+.wx-tip { margin: 6px 0 0; padding: 8px 12px; border-radius: 14px; font-size: 14px; font-weight: 600; line-height: 1.4; background: rgba(255, 255, 255, .13); }
+
+/* ---------- Meals ---------- */
+.meal-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.meal-tile { display: grid; justify-items: center; gap: 2px; padding: 12px 6px; border-radius: 18px; text-align: center; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .2); }
+.meal-tile.yes { background: rgba(34, 211, 122, .18); border-color: rgba(34, 211, 122, .55); }
+.meal-tile.no { background: rgba(253, 230, 138, .16); border-color: rgba(253, 230, 138, .55); }
+.meal-emoji { font-size: 28px; }
+.meal-tile b { font-size: 14px; font-weight: 800; }
+.meal-state { font-size: 18px; line-height: 1.2; }
+.meal-tile small { color: var(--muted); font-size: 12.5px; font-weight: 700; }
+
 /* ---------- Birthday ---------- */
 .bday-banner {
   display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 16px;

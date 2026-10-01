@@ -6,6 +6,8 @@ import { unreadMessages } from "./notify.js";
 import { memoryTitle } from "./memories.js";
 import { movementsSection } from "./movements.js";
 import { togetherCard } from "./together.js";
+import { weatherCard } from "./weather.js";
+import { partnerMealsCard } from "./meals.js";
 import { birthdayBanner } from "./birthday.js";
 
 function greeting() {
@@ -62,6 +64,8 @@ function renderHome() {
     ${birthdayBanner()}
     <div class="home-grid">
       ${togetherCard()}
+      ${weatherCard()}
+      ${partnerMealsCard()}
       <article class="glass hcard">
         <header class="hcard-head">
           <span class="hcard-ico">💬</span>

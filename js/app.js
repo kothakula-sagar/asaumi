@@ -23,6 +23,7 @@ import { askName } from "./settings.js";
 import { startLocation, stopLocation, checkNearChange } from "./together.js";
 import { onBirthdaysChanged, maybeShowSurprise, syncBirthdayNotification } from "./birthday.js";
 import { onLocalNotificationTap } from "./native.js";
+import { scheduleMealCheck, sinceKey } from "./meals.js";
 
 $$("[data-icon]").forEach(el => (el.innerHTML = ICONS[el.dataset.icon]));
 applyBrandChrome(); // last saved name / icon, so the login screen shows them too
@@ -40,7 +41,7 @@ onAuthStateChanged(auth, async user => {
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: 60, loaded: {},
       memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null,
-      locations: {}, myPos: null, birthdays: null, stickers: [],
+      locations: {}, myPos: null, birthdays: null, stickers: [], meals: {},
       view: "home", locked: false, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pin: null, pinReset: false
     });
     closeAllModals();
@@ -102,6 +103,7 @@ hooks.onUnlock = () => {
   markRead();
   startLocation();
   maybeShowSurprise();
+  scheduleMealCheck(1500); // after Home, location and weather have loaded
 };
 
 /* ------------------------------------------------------------------ Android app integration */
@@ -186,6 +188,12 @@ function subscribe() {
   sub(onSnapshot(query(collection(db, "stickers"), orderBy("createdAt", "desc")), snap => {
     state.stickers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderOurStickers();
+  }, onErr));
+
+  sub(onSnapshot(query(collection(db, "meals"), where("date", ">=", sinceKey(14))), snap => {
+    state.meals = Object.fromEntries(snap.docs.map(d => [d.id, d.data({ serverTimestamps: "estimate" })]));
+    state.loaded.meals = true;
+    scheduleRender();
   }, onErr));
 
   sub(onSnapshot(collection(db, "locations"), snap => {
