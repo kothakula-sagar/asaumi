@@ -195,6 +195,72 @@ export const ICONS = {
   retry: S('<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>')
 };
 
+/* ------------------------------------------------------------------ brand (name, icon, notification wording) */
+// Changed by either person in More → Customize app; stored in settings/app.
+// {app} = the app name, {name} = the sender's name.
+export const BRAND_DEFAULTS = {
+  name: "Asaumi",
+  tagline: "Together, privately.",
+  iconUrl: "",
+  notif: {
+    title: "{app}",
+    message: "{app} you have message",
+    memory: "{app} you have new memories",
+    movement: "{app} you have a new memorable movement",
+    call: "{app} you have a call",
+    videoCall: "{app} you have a video call",
+    missedCall: "{app} you have a missed call"
+  }
+};
+
+let brandCache = null;
+try { brandCache = JSON.parse(localStorage.getItem("asaumi.brand") || "null"); } catch { /* ignore */ }
+
+export function brand() {
+  const b = state.brand || brandCache || {};
+  const notif = { ...BRAND_DEFAULTS.notif };
+  for (const [k, v] of Object.entries(b.notif || {})) if (typeof v === "string" && v.trim()) notif[k] = v.trim();
+  return {
+    name: (b.name || "").trim() || BRAND_DEFAULTS.name,
+    tagline: (b.tagline || "").trim() || BRAND_DEFAULTS.tagline,
+    iconUrl: b.iconUrl || "",
+    notif
+  };
+}
+export const appName = () => brand().name;
+
+export function notifText(key, vars = {}) {
+  const t = brand().notif[key] || BRAND_DEFAULTS.notif[key] || "";
+  return t.replace(/\{app\}/gi, appName()).replace(/\{name\}/gi, vars.name ?? myName());
+}
+
+// The app icon as HTML: the uploaded picture, or the default ❤️
+export function brandIcon() {
+  const u = brand().iconUrl;
+  return u ? `<img class="brand-img" src="${esc(cld(u, "f_auto,q_auto,c_fill,w_256,h_256"))}" alt="" />` : "❤️";
+}
+
+export function setBrand(data) {
+  state.brand = data || null;
+  brandCache = state.brand;
+  try { localStorage.setItem("asaumi.brand", JSON.stringify(state.brand)); } catch { /* ignore */ }
+  applyBrandChrome();
+}
+
+// Parts of the page outside the views: login, splash, centre button, favicon, page title
+export function applyBrandChrome() {
+  const b = brand();
+  const set = (sel, fn) => { const el = document.querySelector(sel); if (el) fn(el); };
+  set("#login-name", el => (el.textContent = b.name));
+  set("#splash-name", el => (el.textContent = b.name));
+  set("#nav-name", el => (el.textContent = b.name));
+  set("#login-icon", el => (el.innerHTML = brandIcon()));
+  set("#nav-orb", el => (el.innerHTML = brandIcon()));
+  set('meta[name="apple-mobile-web-app-title"]', el => el.setAttribute("content", b.name));
+  set("#favicon", el => el.setAttribute("href", b.iconUrl ? cld(b.iconUrl, "c_fill,w_192,h_192") : "icon.svg"));
+  if (!state.user) document.title = b.name;
+}
+
 /* ------------------------------------------------------------------ avatars */
 const AVATAR_GRADS = [
   "linear-gradient(140deg,#38bdf8,#8b5cf6)",

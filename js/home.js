@@ -1,10 +1,12 @@
 import {
   state, uid, esc, ICONS, avatarHtml, presenceDot, statusText, isOnline, isTyping, myName, partnerName,
-  shortWhen, fmtDuration, fmtFullDate, fmtTime, whenDate, cld, views
+  shortWhen, fmtDuration, fmtFullDate, fmtTime, whenDate, cld, appName, views
 } from "./core.js";
 import { unreadMessages } from "./notify.js";
 import { memoryTitle } from "./memories.js";
 import { movementsSection } from "./movements.js";
+import { togetherCard } from "./together.js";
+import { birthdayBanner } from "./birthday.js";
 
 function greeting() {
   const h = new Date().getHours();
@@ -56,7 +58,9 @@ function renderHome() {
       </div>
     </section>
 
+    ${birthdayBanner()}
     <div class="home-grid">
+      ${togetherCard()}
       <article class="glass hcard">
         <header class="hcard-head">
           <span class="hcard-ico">💬</span>
@@ -133,7 +137,7 @@ function renderAsaumi() {
         <span class="us-heart">❤️</span>
         <span class="avatar-wrap">${avatarHtml(p || { name: "?" }, "xl")}${p ? presenceDot(p.uid) : ""}</span>
       </div>
-      <h1>❤️ Asaumi</h1>
+      <h1>❤️ ${esc(appName())}</h1>
       <p class="us-sub">A little world for two.</p>
       <p class="us-names">${esc(names.join(" & "))}</p>
       <p class="presence-line center ${p && isOnline(p.uid) ? "on" : ""}">${p ? `<i></i>${esc(partnerName())} · ${esc(statusText(p.uid))}` : "Waiting for your person ❤️"}</p>

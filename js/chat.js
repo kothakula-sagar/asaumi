@@ -4,7 +4,7 @@ import {
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, viewImage, avatarHtml, presenceDot,
   statusText, isTyping, toDate, fmtTime, dayLabel, sameDay, fmtDuration, cld, videoPoster, audioUrl,
-  prepareImage, upload, friendlyError, partnerName, realNameOf, spinner, audioCtx, ping, actions, views, $, $$
+  prepareImage, upload, friendlyError, partnerName, realNameOf, spinner, audioCtx, ping, notifText, actions, views, $, $$
 } from "./core.js";
 import { typingPing, typingStop, systemNotify, pushPartner } from "./notify.js";
 import { LIMITS } from "./config.js";
@@ -395,10 +395,10 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) mark
 export function onIncomingMessage() {
   const inChat = state.view === "chat" && !document.hidden && !state.locked;
   if (inChat) return;
-  const text = "Asaumi you have message";
+  const text = notifText("message", { name: partnerName() });
   ping();
   if (!document.hidden) toast(`💬 ${text}`);
-  systemNotify("❤️ Asaumi", text, "message");
+  systemNotify(notifText("title", { name: partnerName() }), text, "message");
 }
 
 /* ------------------------------------------------------------------ sending */
@@ -407,7 +407,7 @@ async function sendMessage(data) {
   const ref = await addDoc(collection(db, "messages"), {
     ...data, from: uid(), to: state.partner.uid, createdAt: serverTimestamp()
   });
-  pushPartner({ body: "Asaumi you have message", page: "chat", tag: "chat" });
+  pushPartner({ body: notifText("message"), page: "chat", tag: "chat" });
   return ref;
 }
 

@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, myName, esc, ICONS, toast, avatarHtml, toDate, fmtDuration, friendlyError,
-  realNameOf, partnerName, audioCtx, actions, $
+  realNameOf, partnerName, audioCtx, notifText, appName, actions, $
 } from "./core.js";
 import { notifyPartner, systemNotify, pushPartner } from "./notify.js";
 import { CHANNELS } from "./native.js";
@@ -285,8 +285,8 @@ async function startCall(kind = "video") {
     });
     setState("ringing");
     pushPartner({
-      title: kind === "audio" ? "📞 Asaumi" : "📹 Asaumi",
-      body: kind === "audio" ? "Asaumi you have a call" : "Asaumi you have a video call",
+      title: notifText("title"),
+      body: notifText(kind === "audio" ? "call" : "videoCall"),
       page: "home", tag: "call", channel: CHANNELS.calls, ttl: 45
     });
   } catch (err) {
@@ -336,7 +336,7 @@ export function watchIncoming() {
         closeIncoming();
         getDoc(doc(db, "calls", was.id)).then(s => {
           const st = s.data()?.status;
-          if (st === "missed") toast("📹 Asaumi you have a missed call");
+          if (st === "missed") toast(`📹 ${notifText("missedCall", { name: realNameOf(was.data.callerId, was.data.callerName) })}`);
         }).catch(() => {});
       }
       const next = fresh.find(c => c.id !== incoming?.id);
@@ -370,7 +370,7 @@ function showIncoming(c) {
         <div class="call-rings ringing">${avatarHtml(caller, "xxl")}</div>
         <div class="incoming-heart">❤️</div>
         <h2>${esc(caller.name || "Your person")}</h2>
-        <p>is calling you on Asaumi</p>
+        <p>is calling you on ${esc(appName())}</p>
       </div>
       <div class="incoming-actions">
         <button class="ia decline" data-ia="decline"><span>${ICONS.close}</span>Decline</button>
@@ -381,7 +381,7 @@ function showIncoming(c) {
   $('[data-ia="accept"]', root()).addEventListener("click", () => acceptCall(c));
   $('[data-ia="decline"]', root()).addEventListener("click", () => declineCall(c));
   startRinging();
-  systemNotify("❤️ Asaumi", video ? "Asaumi you have a video call" : "Asaumi you have a call", "call");
+  systemNotify(notifText("title", { name: caller.name || "" }), notifText(video ? "videoCall" : "call", { name: caller.name || "" }), "call");
 }
 
 function closeIncoming() {
@@ -493,7 +493,7 @@ async function finish(reason = "ended") {
   updateDoc(c.ref, upd).catch(() => {});
   cleanCandidates(c.ref);
   if (status === "missed") {
-    notifyPartner("missed_call", "Asaumi you have a missed call", { callId: c.id });
+    notifyPartner("missed_call", notifText("missedCall"), { callId: c.id });
   }
   const title = `${c.kind === "audio" ? "Audio" : "Video"} call ended`;
   if (status === "failed") showEnded("Couldn't connect", "The connection couldn't be established. Please try again.");

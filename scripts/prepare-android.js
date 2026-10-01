@@ -8,8 +8,10 @@ const res = path.join(appDir, "src", "main", "res");
 const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
 
 (async () => {
-  // ---- 1) Launcher icons from icon.svg ----
-  const icon = fs.readFileSync(path.join(root, "icon.svg"));
+  // ---- 1) Launcher (home-screen) icon: assets/app-icon.png if you uploaded one, otherwise icon.svg ----
+  const customIcon = ["png", "jpg", "jpeg", "webp"].map(e => path.join(root, "assets", `app-icon.${e}`)).find(p => fs.existsSync(p));
+  const icon = fs.readFileSync(customIcon || path.join(root, "icon.svg"));
+  console.log(`Home-screen icon: ${customIcon ? path.basename(customIcon) : "icon.svg (default)"}`);
   const launcher = { "mipmap-mdpi": 48, "mipmap-hdpi": 72, "mipmap-xhdpi": 96, "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192 };
   for (const [dir, px] of Object.entries(launcher)) {
     fs.mkdirSync(path.join(res, dir), { recursive: true });
@@ -42,7 +44,14 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
     "android.permission.MODIFY_AUDIO_SETTINGS",
     "android.permission.POST_NOTIFICATIONS",
     "android.permission.VIBRATE",
-    "android.permission.WAKE_LOCK"
+    "android.permission.WAKE_LOCK",
+    // "Together" distance (only while the app is open, only if turned on in Settings)
+    "android.permission.ACCESS_COARSE_LOCATION",
+    "android.permission.ACCESS_FINE_LOCATION",
+    // Birthday surprise notification at exactly 12 AM
+    "android.permission.SCHEDULE_EXACT_ALARM",
+    "android.permission.USE_EXACT_ALARM",
+    "android.permission.RECEIVE_BOOT_COMPLETED"
   ];
   const addPerms = perms.filter(p => !m.includes(`"${p}"`)).map(p => `    <uses-permission android:name="${p}" />`);
   const features = [

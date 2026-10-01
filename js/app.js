@@ -6,7 +6,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   auth, db, state, views, actions, hooks, scheduleRender, $, $$, esc, ICONS, avatarHtml, presenceDot,
-  isOnline, statusText, toast, friendlyError, confirmDialog, closeAllModals, cld, spinner, whenDate
+  isOnline, statusText, toast, friendlyError, confirmDialog, closeAllModals, cld, spinner, whenDate,
+  brand, brandIcon, appName, setBrand, applyBrandChrome
 } from "./core.js";
 import {
   startPresence, stopPresence, unreadNotifications, unreadMessages, announceNotification, registerPush, unregisterPush
@@ -19,8 +20,12 @@ import { renderLock, resetPin } from "./lock.js";
 import "./movements.js";
 import "./home.js";
 import { askName } from "./settings.js";
+import { startLocation, stopLocation, checkNearChange } from "./together.js";
+import { onBirthdaysChanged, maybeShowSurprise, syncBirthdayNotification } from "./birthday.js";
+import { onLocalNotificationTap } from "./native.js";
 
 $$("[data-icon]").forEach(el => (el.innerHTML = ICONS[el.dataset.icon]));
+applyBrandChrome(); // last saved name / icon, so the login screen shows them too
 
 /* ------------------------------------------------------------------ auth */
 onAuthStateChanged(auth, async user => {
@@ -35,6 +40,7 @@ onAuthStateChanged(auth, async user => {
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: 60, loaded: {},
       memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null,
+      locations: {}, myPos: null, birthdays: null,
       view: "home", locked: false, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pin: null, pinReset: false
     });
     closeAllModals();
@@ -58,7 +64,7 @@ onAuthStateChanged(auth, async user => {
     state.me = meSnap.exists() ? meSnap.data() : null;
   } catch (err) {
     if (err?.code === "permission-denied") {
-      toast("This account doesn't have access to Asaumi.", "error");
+      toast(`This account doesn't have access to ${appName()}.`, "error");
       await signOut(auth);
       return;
     }
@@ -94,14 +100,18 @@ hooks.loadPin = loadPin;
 hooks.onUnlock = () => {
   if (!state.me?.name) askName();
   markRead();
+  startLocation();
+  maybeShowSurprise();
 };
 
 /* ------------------------------------------------------------------ Android app integration */
 let pendingPage = null;
-onNotificationTap(page => {
+const openPage = page => {
   const view = page in views ? page : "home";
   if (state.user) go(view); else pendingPage = view;
-});
+};
+onNotificationTap(openPage);
+onLocalNotificationTap(openPage);
 onResume(() => {
   if (!state.user) return;
   clearDelivered();
@@ -131,6 +141,7 @@ function subscribe() {
     if (state.members[me]) state.me = state.members[me];
     const others = Object.values(state.members).filter(u => u.uid !== me);
     state.partner = others[0] || null;
+    if (state.me?.shareLocation) startLocation(); else stopLocation();
     scheduleRender();
   }, onErr));
 
@@ -172,6 +183,22 @@ function subscribe() {
     scheduleRender();
   }, onErr));
 
+  sub(onSnapshot(collection(db, "locations"), snap => {
+    state.locations = Object.fromEntries(snap.docs.map(d => [d.id, d.data({ serverTimestamps: "estimate" })]));
+    checkNearChange();
+    scheduleRender();
+  }, onErr));
+
+  sub(onSnapshot(doc(db, "settings", "birthdays"), snap => {
+    state.birthdays = snap.exists() ? snap.data() : null;
+    onBirthdaysChanged();
+  }, onErr));
+
+  sub(onSnapshot(doc(db, "settings", "app"), snap => {
+    setBrand(snap.exists() ? snap.data() : null);
+    scheduleRender();
+  }, onErr));
+
   sub(onSnapshot(doc(db, "settings", "background"), snap => {
     state.background = snap.exists() ? snap.data() : null;
     applyBackground();
@@ -179,7 +206,8 @@ function subscribe() {
   }, onErr));
 
   // refresh "last seen …" / typing timeouts
-  const tick = setInterval(scheduleRender, 20000);
+  // refresh "last seen", distance, and catch midnight on a birthday while the app is open
+  const tick = setInterval(() => { scheduleRender(); maybeShowSurprise(); syncBirthdayNotification(); }, 20000);
   sub(() => clearInterval(tick));
 }
 
@@ -312,8 +340,8 @@ function renderTopbar() {
   const bell = unreadNotifications() + (unreadMessages() ? 1 : 0);
   const html = `
     <button class="brand" data-nav="asaumi">
-      <span class="brand-heart">❤️</span>
-      <span class="brand-text"><b>Asaumi</b><small>Together, privately.</small></span>
+      <span class="brand-heart">${brandIcon()}</span>
+      <span class="brand-text"><b>${esc(appName())}</b><small>${esc(brand().tagline)}</small></span>
     </button>
     <div class="top-actions">
       ${p ? `<button class="partner-pill glass ${isOnline(p.uid) ? "on" : ""}" data-nav="chat" title="${esc(statusText(p.uid))}">
@@ -336,7 +364,7 @@ function renderNav() {
   const badge = $("#chat-badge");
   badge.hidden = !n;
   badge.textContent = n > 99 ? "99+" : n;
-  document.title = n ? `(${n}) Asaumi` : "Asaumi";
+  document.title = n ? `(${n}) ${appName()}` : appName();
 }
 
 function applyBackground() {
@@ -353,9 +381,10 @@ function applyBackground() {
 
 /* ------------------------------------------------------------------ sign out */
 actions.signOut = async () => {
-  const ok = await confirmDialog({ title: "Sign out?", text: "Are you sure you want to leave Asaumi?", ok: "Sign Out" });
+  const ok = await confirmDialog({ title: "Sign out?", text: `Are you sure you want to leave ${appName()}?`, ok: "Sign Out" });
   if (!ok) return;
   stopWatchingIncoming();
+  stopLocation();
   await unregisterPush();
   await stopPresence();
   state.unsubs.forEach(u => u());

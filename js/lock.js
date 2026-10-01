@@ -3,7 +3,7 @@
 import { doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, esc, ICONS, toast, askPassword, sha256, friendlyError, spinner, closeAllModals,
-  avatarHtml, myName, scheduleRender, actions, hooks, $
+  avatarHtml, myName, scheduleRender, appName, actions, hooks, $
 } from "./core.js";
 import { PIN_LENGTH } from "./config.js";
 
@@ -83,9 +83,9 @@ export function renderLock() {
   const mem = state.lockScope === "memories";
   const copy = {
     unlock: mem
-      ? ["Enter your PIN", "Memories stay locked even when Asaumi is open."]
-      : ["Enter your PIN", "Asaumi is locked. Only you can open it."],
-    create: [state.pinReset ? "Create a new PIN" : "Create your Asaumi PIN", `Choose a ${PIN_LENGTH}-digit PIN. Asaumi will ask for it when it opens and for Memories.`],
+      ? ["Enter your PIN", `Memories stay locked even when ${appName()} is open.`]
+      : ["Enter your PIN", `${appName()} is locked. Only you can open it.`],
+    create: [state.pinReset ? "Create a new PIN" : `Create your ${appName()} PIN`, `Choose a ${PIN_LENGTH}-digit PIN. ${appName()} will ask for it when it opens and for Memories.`],
     confirm: ["Confirm PIN", "Enter the same PIN once more."]
   }[p.mode];
   const dots = Array.from({ length: PIN_LENGTH }, (_, i) => `<i class="${i < p.value.length ? "on" : ""}"></i>`).join("");
@@ -102,7 +102,7 @@ export function renderLock() {
         ${mem
           ? `<div class="lock-orb">${ICONS.lock}</div>`
           : `<div class="lock-avatar">${avatarHtml(state.me || { name: myName() }, "lg")}<span class="lock-badge">${ICONS.lock}</span></div>`}
-        <p class="eyebrow">${mem ? "🔐 Our Memories" : "❤️ Asaumi"}</p>
+        <p class="eyebrow">${mem ? "🔐 Our Memories" : `❤️ ${esc(appName())}`}</p>
         <h1>${copy[0]}</h1>
         <p class="muted">${copy[1]}</p>
         <div class="pin-dots ${shake ? "shake" : ""}">${dots}</div>

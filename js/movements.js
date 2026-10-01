@@ -3,7 +3,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, whenDate, nowLocalInput,
-  fmtFullDate, fmtLongDate, fmtTime, fmtDateTime, realNameOf, friendlyError, spinner, actions, $
+  fmtFullDate, fmtLongDate, fmtTime, fmtDateTime, realNameOf, friendlyError, spinner, notifText, actions, $
 } from "./core.js";
 import { notifyPartner } from "./notify.js";
 
@@ -79,7 +79,7 @@ function addMovementModal(existing = null) {
         text: text.value.trim(), when: when.value,
         byUid: uid(), byName: myName(), createdAt: serverTimestamp()
       });
-      notifyPartner("movement", "Asaumi you have a new memorable movement", { refId: ref.id });
+      notifyPartner("movement", notifText("movement"), { refId: ref.id });
       m.close();
       toast("Memorable Movement saved ❤️");
     } catch (e) {

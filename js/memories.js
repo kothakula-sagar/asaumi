@@ -4,7 +4,7 @@ import {
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, cld,
   prepareImage, upload, downloadFile, fmtDate, fmtFullDate, fmtTime, realNameOf, friendlyError,
-  spinner, viewImage, actions, views, hooks, $
+  spinner, viewImage, notifText, actions, views, hooks, $
 } from "./core.js";
 import { notifyPartner } from "./notify.js";
 import { askMemoriesPin, lockMemories } from "./lock.js";
@@ -141,7 +141,7 @@ function addMemoryModal(existing = null) {
         title: title.value.trim(), text: text.value.trim(),
         byUid: uid(), byName: myName(), createdAt: serverTimestamp()
       });
-      notifyPartner("memory", "Asaumi you have new memories", { refId: ref.id });
+      notifyPartner("memory", notifText("memory"), { refId: ref.id });
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       m.close();
       toast("Memory saved 💜");

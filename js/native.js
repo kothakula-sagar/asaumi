@@ -147,7 +147,7 @@ function parseBody(d) {
 
 // tokens: the other phone's FCM tokens. Never throws.
 // Returns one result per token: { ok, status, error }
-export async function sendPush(tokens, { title = "❤️ Asaumi", body, page = "home", tag = "asaumi", channel = CHANNELS.messages, ttl }) {
+export async function sendPush(tokens, { title = "Asaumi", body, page = "home", tag = "asaumi", channel = CHANNELS.messages, ttl }) {
   if (!canSendPush()) return [{ ok: false, error: "This APK was built without the sending key (FCM_SERVICE_ACCOUNT)." }];
   if (!tokens?.length) return [{ ok: false, error: "The other phone hasn't registered for notifications yet." }];
   let auth;
@@ -188,6 +188,45 @@ export async function sendPush(tokens, { title = "❤️ Asaumi", body, page = "
 
 export function buildInfo() {
   return { isNative, canReceive: isNative && PUSH_ENABLED, hasKey: !!PUSH_KEY, httpPlugin: !!Http, pushPlugin: !!Push };
+}
+
+/* ------------------------------------------------------------------ local notifications (birthday at 12 AM) */
+// Scheduled ON this phone, so it fires at midnight even with the app closed and no internet.
+const Local = plugin("LocalNotifications");
+const BIRTHDAY_ID = 7101;
+export const SURPRISE_CHANNEL = "asaumi_surprise";
+
+export async function scheduleBirthday(at, { title, body }) {
+  if (!Local) return { ok: false, reason: "not-native" };
+  try {
+    let p = await Local.checkPermissions();
+    if (p.display !== "granted") p = await Local.requestPermissions();
+    if (p.display !== "granted") return { ok: false, reason: "permission" };
+    await Local.createChannel({ id: SURPRISE_CHANNEL, name: "Surprises", description: "Birthday surprise at midnight", importance: 5, visibility: 0, vibration: true });
+    await Local.cancel({ notifications: [{ id: BIRTHDAY_ID }] }).catch(() => {});
+    if (!at) return { ok: true, cancelled: true };
+    await Local.schedule({
+      notifications: [{
+        id: BIRTHDAY_ID, title, body, channelId: SURPRISE_CHANNEL, smallIcon: "ic_stat_icon",
+        schedule: { at, allowWhileIdle: true }, extra: { page: "home" }
+      }]
+    });
+    return { ok: true };
+  } catch (err) {
+    console.warn("[asaumi] birthday schedule", err);
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// Android 12+: "Alarms & reminders" permission makes the 12 AM notification exact
+export async function exactAlarmAllowed() {
+  if (!Local) return true;
+  try { return (await Local.checkExactNotificationSetting()).exact_alarm === "granted"; } catch { return true; }
+}
+export async function openExactAlarmSettings() { try { await Local?.changeExactNotificationSetting(); } catch { /* ignore */ } }
+
+export function onLocalNotificationTap(cb) {
+  try { Local?.addListener("localNotificationActionPerformed", a => cb(a?.notification?.extra?.page || "home")); } catch { /* ignore */ }
 }
 
 export function onBackButton(cb) { try { App?.addListener("backButton", cb); } catch { /* ignore */ } }

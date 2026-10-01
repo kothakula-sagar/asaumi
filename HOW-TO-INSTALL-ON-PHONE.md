@@ -92,6 +92,15 @@ If you see a red ❌, open the run, copy the red error text and send it to me.
 
 ---
 
+## Changing the home-screen icon and name (needs a new APK)
+Android fixes the icon and the name under it when the APK is built. Inside the app, use **More → Customize app** instead,
+which changes instantly for both of you.
+- **Icon:** on GitHub open the `assets` folder → **Add file → Upload files** → upload a square picture named exactly
+  **`app-icon.png`** (or `.jpg`), at least 512 × 512 → **Commit changes**.
+- **Name:** on GitHub open `capacitor.config.json` → ✏️ edit → change `"appName": "Asaumi"` to your name → **Commit changes**.
+- Wait for the green build in **Actions**, download the new APK, and **uninstall the old app first**.
+  Android only refreshes the icon and name on a fresh install. Your data is safe in Firebase.
+
 ## Updating the app later
 Upload the changed files to GitHub → the APK builds automatically in **Actions** → download and install it over the old one.
 If Android says **"App not installed"**, uninstall the old Asaumi first. Your data is safe in Firebase.

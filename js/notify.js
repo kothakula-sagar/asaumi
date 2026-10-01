@@ -2,7 +2,7 @@ import {
   doc, getDoc, setDoc, addDoc, collection, serverTimestamp, writeBatch, arrayUnion, arrayRemove
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
-  db, state, uid, myName, esc, ICONS, openModal, toast, shortWhen, scheduleRender, actions, $
+  db, state, uid, myName, esc, ICONS, openModal, toast, shortWhen, scheduleRender, notifText, appName, actions, $
 } from "./core.js";
 import {
   isNative, initPush, getPushToken, pushPermission, canSendPush, sendPush, CHANNELS, buildInfo, lastPushError
@@ -61,7 +61,7 @@ export async function pushPartner(opts) {
   if (!canSendPush() || !state.partner) return;
   try {
     const snap = await getDoc(doc(db, "pushTokens", state.partner.uid));
-    await sendPush(snap.data()?.tokens || [], opts);
+    await sendPush(snap.data()?.tokens || [], { title: notifText("title"), ...opts });
   } catch (err) {
     console.warn("[asaumi] push partner", err);
   }
@@ -122,7 +122,7 @@ function notifRow(n) {
 actions.openNotifications = () => {
   const msgs = unreadMessages();
   const rows = [
-    msgs ? notifRow({ type: "message", text: `Asaumi you have message${msgs > 1 ? ` (${msgs})` : ""}`, fromName: state.partner?.name, createdAt: state.messages.at(-1)?.createdAt }) : "",
+    msgs ? notifRow({ type: "message", text: `${notifText("message", { name: state.partner?.name || "" })}${msgs > 1 ? ` (${msgs})` : ""}`, fromName: state.partner?.name, createdAt: state.messages.at(-1)?.createdAt }) : "",
     ...state.notifications.slice(0, 40).map(notifRow)
   ].join("");
   const m = openModal(`
@@ -240,16 +240,16 @@ actions.checkNotifications = async () => {
     const t = getPushToken();
     if (!t) { show([{ ok: false, error: "This phone isn't registered yet." }], "Test"); return; }
     out.textContent = "Sending in 5 seconds. Press the Home button now, because notifications don't pop up while Asaumi is open.";
-    setTimeout(async () => show(await sendPush([t], { body: "Test notification ✓ Asaumi can reach this phone.", page: "more", tag: "test" }), "Test on this phone"), 5000);
+    setTimeout(async () => show(await sendPush([t], { title: notifText("title"), body: `Test notification ✓ ${appName()} can reach this phone.`, page: "more", tag: "test" }), "Test on this phone"), 5000);
   });
   $("[data-partner]", m).addEventListener("click", async () => {
     out.textContent = "Sending…";
-    show(await sendPush(partnerTokens || [], { body: "Asaumi you have message", page: "chat", tag: "test" }), `Test on ${state.partner?.name || "partner"}'s phone`);
+    show(await sendPush(partnerTokens || [], { title: notifText("title"), body: notifText("message"), page: "chat", tag: "test" }), `Test on ${state.partner?.name || "partner"}'s phone`);
   });
 };
 
 // Called for each new notification doc that arrives while the app is open
 export function announceNotification(n) {
   toast(n.text);
-  systemNotify("❤️ Asaumi", n.text, n.type);
+  systemNotify(notifText("title", { name: n.fromName || "" }), n.text, n.type);
 }

@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Asaumi" />
   <title>Asaumi</title>
-  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="icon" id="favicon" href="icon.svg" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="manifest" href="manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -29,14 +29,14 @@
   <!-- Splash while Firebase restores the session -->
   <div id="splash" class="splash">
     <div class="splash-heart">❤️</div>
-    <b>Asaumi</b>
+    <b id="splash-name">Asaumi</b>
   </div>
 
   <!-- Login (no sign-up — the two accounts are created in Firebase) -->
   <main id="auth" class="auth" hidden>
     <form id="login-form" class="glass auth-card" novalidate>
-      <div class="auth-orb">❤️</div>
-      <h1>Asaumi</h1>
+      <div class="auth-orb" id="login-icon">❤️</div>
+      <h1 id="login-name">Asaumi</h1>
       <p class="auth-sub">A little world for two.</p>
       <label class="field">
         <span>Email</span>
@@ -67,13 +67,14 @@
     <nav class="nav glass" aria-label="Main">
       <button class="nav-item" data-nav="home"><span class="nav-ico" data-icon="home"></span><span>Home</span></button>
       <button class="nav-item" data-nav="chat"><span class="nav-ico"><span data-icon="chat"></span><b id="chat-badge" class="badge" hidden></b></span><span>Chat</span></button>
-      <button class="nav-item nav-center" data-nav="asaumi"><span class="nav-orb">❤️</span><span>Asaumi</span></button>
+      <button class="nav-item nav-center" data-nav="asaumi"><span class="nav-orb" id="nav-orb">❤️</span><span id="nav-name">Asaumi</span></button>
       <button class="nav-item" data-nav="memories"><span class="nav-ico" data-icon="lock"></span><span>Memories</span></button>
       <button class="nav-item" data-nav="more"><span class="nav-ico" data-icon="dots"></span><span>More</span></button>
     </nav>
   </div>
 
   <div id="lock-root" class="lock-root" hidden></div>
+  <div id="surprise-root" class="surprise-root" hidden></div>
   <div id="call-root"></div>
   <div id="modal-root"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
