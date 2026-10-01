@@ -378,7 +378,7 @@ export function markDelivered() {
 }
 
 export function markRead() {
-  if (state.view !== "chat" || document.hidden) return;
+  if (state.view !== "chat" || document.hidden || state.locked) return;
   const unread = state.messages.filter(m => m.to === uid() && !m.readAt && !m.pending && !readAsked.has(m.id));
   if (!unread.length) return;
   const b = writeBatch(db);
@@ -393,7 +393,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) mark
 
 // Called by app.js with each new message from the other person (not the first load)
 export function onIncomingMessage() {
-  const inChat = state.view === "chat" && !document.hidden;
+  const inChat = state.view === "chat" && !document.hidden && !state.locked;
   if (inChat) return;
   const text = "Asaumi you have message";
   ping();

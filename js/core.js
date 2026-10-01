@@ -37,7 +37,11 @@ export const state = {
   background: null,       // settings/background
   pinHash: null,
   view: "home",
-  unlocked: false,
+  locked: false,          // PIN screen is showing
+  lockScope: "app",       // "app" (on open) or "memories"
+  memUnlocked: false,
+  pinLoaded: false,
+  pinError: "",
   pin: null,
   pinReset: false,
   online: navigator.onLine,

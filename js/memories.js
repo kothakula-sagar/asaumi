@@ -1,16 +1,16 @@
 import {
-  doc, collection, setDoc, addDoc, updateDoc, deleteDoc, serverTimestamp
+  doc, collection, addDoc, updateDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
-  db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, askPassword, sha256, cld,
+  db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, cld,
   prepareImage, upload, downloadFile, fmtDate, fmtFullDate, fmtTime, realNameOf, friendlyError,
-  spinner, scheduleRender, viewImage, actions, views, hooks, $
+  spinner, viewImage, actions, views, hooks, $
 } from "./core.js";
 import { notifyPartner } from "./notify.js";
-import { PIN_LENGTH, LIMITS } from "./config.js";
+import { askMemoriesPin, lockMemories } from "./lock.js";
+import { LIMITS } from "./config.js";
 
 const PREVIEW_CHARS = 96;
-let failCount = 0, lockedUntil = 0;
 
 export const memoryTitle = m => m.title || (m.text || "").split("\n")[0].slice(0, 40) || "A memory";
 export function previewText(text = "") {
@@ -18,117 +18,17 @@ export function previewText(text = "") {
   return t.length > PREVIEW_CHARS ? `${t.slice(0, PREVIEW_CHARS).trimEnd()}.....` : t;
 }
 
-/* ------------------------------------------------------------------ PIN */
-export function resetPin() {
-  const mode = state.pinHash && !state.pinReset ? "unlock" : "create";
-  state.pin = { mode, value: "", first: "", error: "", shake: false, busy: false };
-}
-
-export function lockMemories() {
-  state.unlocked = false;
-  resetPin();
-}
-
-function renderPinPad() {
-  const p = state.pin || (resetPin(), state.pin);
-  const copy = {
-    unlock: ["Enter your Memories PIN", "Only the two of you can open this place."],
-    create: [state.pinReset ? "Create a new Memories PIN" : "Create Memories PIN", `Choose a ${PIN_LENGTH}-digit PIN to protect your memories.`],
-    confirm: ["Confirm PIN", "Enter the same PIN once more."]
-  }[p.mode];
-  const dots = Array.from({ length: PIN_LENGTH }, (_, i) => `<i class="${i < p.value.length ? "on" : ""}"></i>`).join("");
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(k => `<button class="key" data-action="pinKey" data-key="${k}">${k}</button>`).join("");
-  const left = p.mode === "unlock"
-    ? '<button class="key plain" data-action="forgotPin">Forgot<br>PIN?</button>'
-    : p.mode === "confirm" ? '<button class="key plain" data-action="pinRestart">Start<br>over</button>' : "<span></span>";
-  const shake = p.shake;
-  p.shake = false;
-  return `
-    <section class="lock">
-      <div class="lock-orb">${ICONS.lock}</div>
-      <p class="eyebrow">🔐 Our Memories</p>
-      <h1>${copy[0]}</h1>
-      <p class="muted">${copy[1]}</p>
-      <div class="pin-dots ${shake ? "shake" : ""}">${dots}</div>
-      <p class="pin-error">${esc(p.error)}</p>
-      <div class="keypad">
-        ${keys}
-        ${left}
-        <button class="key" data-action="pinKey" data-key="0">0</button>
-        <button class="key plain" data-action="pinKey" data-key="back" aria-label="Delete">⌫</button>
-      </div>
-    </section>`;
-}
-
-async function pinKey(key) {
-  const p = state.pin;
-  if (!p || p.busy) return;
-  if (key === "back") { p.value = p.value.slice(0, -1); scheduleRender(); return; }
-  if (p.value.length >= PIN_LENGTH) return;
-  if (p.mode === "unlock" && Date.now() < lockedUntil) {
-    p.error = `Too many tries. Wait ${Math.ceil((lockedUntil - Date.now()) / 1000)}s.`;
-    scheduleRender();
-    return;
-  }
-  p.error = "";
-  p.value += key;
-  hooks.render();
-  if (p.value.length < PIN_LENGTH) return;
-
-  p.busy = true;
-  const hash = await sha256(`${uid()}:${p.value}`);
-  await new Promise(r => setTimeout(r, 140)); // let the last dot show
-  p.busy = false;
-
-  if (p.mode === "unlock") {
-    if (hash === state.pinHash) {
-      failCount = 0;
-      state.unlocked = true;
-    } else {
-      failCount += 1;
-      if (failCount >= 5) { lockedUntil = Date.now() + 30000; failCount = 0; }
-      Object.assign(p, { value: "", error: "Incorrect PIN. Please try again.", shake: true });
-    }
-  } else if (p.mode === "create") {
-    Object.assign(p, { first: p.value, value: "", mode: "confirm" });
-  } else if (p.mode === "confirm") {
-    if (p.value !== p.first) {
-      Object.assign(p, { mode: "create", value: "", first: "", error: "PINs didn't match. Let's start again.", shake: true });
-    } else {
-      try {
-        await setDoc(doc(db, "pins", uid()), { hash, updatedAt: serverTimestamp() });
-        state.pinHash = hash;
-        state.pinReset = false;
-        state.unlocked = true;
-        toast("Memories PIN saved 🔐");
-      } catch (err) {
-        Object.assign(p, { mode: "create", value: "", first: "", error: friendlyError(err, "Couldn't save the PIN. Try again.") });
-      }
-    }
-  }
-  scheduleRender();
-}
-
-document.addEventListener("keydown", e => {
-  if (state.view !== "memories" || state.unlocked || $("#modal-root").children.length || !state.user) return;
-  if (/^\d$/.test(e.key)) pinKey(e.key);
-  else if (e.key === "Backspace") pinKey("back");
-});
-
-// Forgot PIN → verify Firebase password → create new PIN → confirm → open
-export async function startPinReset() {
-  const ok = await askPassword({ title: "Forgot PIN?", text: "Enter your Asaumi login password to create a new Memories PIN." });
-  if (!ok) return;
-  state.pinReset = true;
-  state.unlocked = false;
-  state.pin = null;
-  hooks.go("memories");
-  toast("Verified ✓ Now create your new PIN");
-}
-
 /* ------------------------------------------------------------------ list */
 function renderMemories() {
-  if (!state.unlocked) return renderPinPad();
+  if (!state.memUnlocked) {
+    return `
+      <div class="glass empty mem-locked">
+        <span class="empty-orb">🔐</span>
+        <b>Our Memories are locked</b>
+        <p>A private place for moments worth keeping.</p>
+        <button class="btn btn-primary" data-action="unlockMemories">${ICONS.unlock} Unlock with PIN</button>
+      </div>`;
+  }
   const list = state.memories;
   return `
     <section class="page-head">
@@ -290,27 +190,14 @@ function openMemory(id) {
 /* ------------------------------------------------------------------ wiring */
 views.memories = {
   render: renderMemories,
-  enter() { if (!state.unlocked) resetPin(); },
-  leave() { lockMemories(); }
+  enter() { if (!state.memUnlocked) askMemoriesPin(); },
+  leave() { lockMemories(); }        // locks again every time you leave Memories
 };
 
 Object.assign(actions, {
-  pinKey: d => pinKey(d.key),
-  pinRestart: () => { resetPin(); scheduleRender(); },
-  forgotPin: startPinReset,
-  resetPin: startPinReset,
-  lockMemories: () => { lockMemories(); scheduleRender(); toast("Memories locked 🔐"); },
   addMemory: () => {
-    if (state.view !== "memories" || !state.unlocked) { hooks.go("memories"); return; }
+    if (state.view !== "memories" || !state.memUnlocked) { hooks.go("memories"); return; }
     addMemoryModal();
   },
   openMemory: d => openMemory(d.id)
-});
-
-// Re-lock whenever the app goes to the background.
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden && state.unlocked) {
-    lockMemories();
-    if (state.view === "memories") scheduleRender();
-  }
 });

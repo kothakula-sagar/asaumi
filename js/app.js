@@ -12,9 +12,10 @@ import {
   startPresence, stopPresence, unreadNotifications, unreadMessages, announceNotification, registerPush, unregisterPush
 } from "./notify.js";
 import { isNative, onNotificationTap, clearDelivered, onBackButton, onResume, minimizeApp, retryPushIfNeeded } from "./native.js";
-import { mountChat, updateChat, markDelivered, onIncomingMessage, resetChat } from "./chat.js";
+import { mountChat, updateChat, markDelivered, markRead, onIncomingMessage, resetChat } from "./chat.js";
 import { watchIncoming, stopWatchingIncoming } from "./call.js";
-import { lockMemories } from "./memories.js";
+import "./memories.js";
+import { renderLock, resetPin } from "./lock.js";
 import "./movements.js";
 import "./home.js";
 import { askName } from "./settings.js";
@@ -34,33 +35,35 @@ onAuthStateChanged(auth, async user => {
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: 60, loaded: {},
       memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null,
-      view: "home", unlocked: false, pin: null, pinReset: false
+      view: "home", locked: false, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pin: null, pinReset: false
     });
     closeAllModals();
+    renderLock();
     applyBackground();
     $("#app").hidden = true;
     $("#auth").hidden = false;
     return;
   }
 
+  // Locked until the PIN is entered (or created the first time)
+  Object.assign(state, { locked: true, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pinReset: false });
+  renderLock();
   $("#auth").hidden = true;
   $("#app").hidden = false;
   mountChat();
   go(location.hash.slice(1) in views ? location.hash.slice(1) : "home", { replace: true });
 
   try {
-    const [meSnap, pinSnap] = await Promise.all([getDoc(doc(db, "users", user.uid)), getDoc(doc(db, "pins", user.uid))]);
+    const meSnap = await getDoc(doc(db, "users", user.uid));
     state.me = meSnap.exists() ? meSnap.data() : null;
-    state.pinHash = pinSnap.exists() ? pinSnap.data().hash : null;
   } catch (err) {
     if (err?.code === "permission-denied") {
       toast("This account doesn't have access to Asaumi.", "error");
       await signOut(auth);
       return;
     }
-    toast(friendlyError(err, "Couldn't load Asaumi. Check your connection."), "error");
   }
-  if (!state.me?.name) askName();
+  await loadPin();
   subscribe();
   startPresence();
   watchIncoming();
@@ -71,6 +74,27 @@ onAuthStateChanged(auth, async user => {
     if (pendingPage) { go(pendingPage); pendingPage = null; }
   }
 });
+
+async function loadPin() {
+  state.pinError = "";
+  renderLock();
+  try {
+    const pinSnap = await getDoc(doc(db, "pins", state.user.uid));
+    state.pinHash = pinSnap.exists() ? pinSnap.data().hash : null;
+    state.pinLoaded = true;
+    resetPin();
+  } catch (err) {
+    // Never fall back to "create a PIN" when we simply couldn't read it
+    state.pinError = friendlyError(err, "Couldn't check your PIN. Check your internet and try again.");
+  }
+  renderLock();
+}
+hooks.loadPin = loadPin;
+
+hooks.onUnlock = () => {
+  if (!state.me?.name) askName();
+  markRead();
+};
 
 /* ------------------------------------------------------------------ Android app integration */
 let pendingPage = null;
@@ -88,6 +112,7 @@ onBackButton(() => {
   const top = $("#modal-root").lastElementChild;
   if (top) { if (top.dismissable) top.close(); return; }
   if (document.body.classList.contains("in-call")) return;
+  if (state.locked) { state.lockScope === "memories" ? actions.cancelMemoriesLock() : minimizeApp(); return; }
   if (state.user && state.view !== "home") { go("home", { replace: true }); return; }
   minimizeApp();
 });
@@ -330,7 +355,6 @@ function applyBackground() {
 actions.signOut = async () => {
   const ok = await confirmDialog({ title: "Sign out?", text: "Are you sure you want to leave Asaumi?", ok: "Sign Out" });
   if (!ok) return;
-  lockMemories();
   stopWatchingIncoming();
   await unregisterPush();
   await stopPresence();

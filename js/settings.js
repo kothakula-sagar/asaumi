@@ -79,7 +79,8 @@ function renderMore() {
 
       <div class="glass card">
         <h3>Privacy</h3>
-        <button class="set-row" data-action="resetPin"><span class="set-ico">${ICONS.lock}</span><span class="set-main"><b>${state.pinHash ? "Reset Memories PIN" : "Create Memories PIN"}</b><small>Verified with your login password</small></span><span class="chev">›</span></button>
+        <button class="set-row" data-action="resetPin"><span class="set-ico">${ICONS.lock}</span><span class="set-main"><b>Change app PIN</b><small>Asked every time Asaumi opens · verified with your login password</small></span><span class="chev">›</span></button>
+        <button class="set-row" data-action="lockNow"><span class="set-ico">${ICONS.lock}</span><span class="set-main"><b>Lock now</b><small>Lock Asaumi until the PIN is entered</small></span><span class="chev">›</span></button>
         <div class="set-row">
           <span class="set-ico">${ICONS.bell}</span>
           <span class="set-main"><b>Notifications</b><small>${esc(n.label)}</small></span>
