@@ -6,7 +6,7 @@ import {
   statusText, isTyping, toDate, fmtTime, dayLabel, sameDay, fmtDuration, cld, videoPoster, audioUrl,
   prepareImage, upload, friendlyError, partnerName, realNameOf, spinner, audioCtx, ping, notifText, actions, views, $, $$
 } from "./core.js";
-import { typingPing, typingStop, systemNotify, pushPartner } from "./notify.js";
+import { typingPing, typingStop, systemNotify, pushPartner, notifyPartner } from "./notify.js";
 import { LIMITS } from "./config.js";
 import { stickerPanes, bindStickerPanel, renderOurStickers, saveAsSticker } from "./stickers.js";
 export { renderOurStickers };
@@ -123,6 +123,8 @@ export function mountChat() {
     if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); return; }
     const quote = e.target.closest("[data-jump]");
     if (quote) { jumpTo(quote.dataset.jump); return; }
+    const toMem = e.target.closest("[data-to-mem]");
+    if (toMem) { uploadToMemories(toMem.dataset.toMem); return; }
     const img = e.target.closest("[data-view-img]");
     if (img) viewImage(img.dataset.viewImg, "asaumi-photo");
   }, true);
@@ -211,7 +213,59 @@ function itemHtml(it, showDate) {
         ${contentHtml(it)}
         <div class="meta">${it.editedAt ? '<span class="edited">edited</span>' : ""}<span>${fmtTime(it.createdAt)}</span>${mine ? `<span class="status">${statusHtml(it)}</span>` : ""}</div>
       </div>
+      ${it.type === "image" && it.media?.url ? toMemoryButton(it) : ""}
     </div>`;
+}
+
+/* ------------------------------------------------------------------ chat photo → Memories */
+const inMemories = url => state.memories.some(m => m.url === url);
+
+function toMemoryButton(it) {
+  const saved = inMemories(it.media.url);
+  return `
+    <button type="button" class="to-mem ${saved ? "saved" : ""}" data-to-mem="${it.id}" aria-label="${saved ? "In Memories" : "Upload to Memories"}">
+      <span>${saved ? ICONS.check : ICONS.lock}</span><small>${saved ? "Saved" : "Memories"}</small>
+    </button>`;
+}
+
+function uploadToMemories(id) {
+  const msg = state.messages.find(x => x.id === id);
+  if (!msg?.media?.url) return;
+  if (inMemories(msg.media.url)) { toast("Already in Memories 🔐"); return; }
+  const caption = (msg.text || "").trim();
+  const m = openModal(`
+    <h2>Upload to Memories 🔐</h2>
+    <div class="media-preview"><img src="${esc(cld(msg.media.url, "f_auto,q_auto,w_900"))}" alt="" /></div>
+    <label class="field"><span>Title</span><input type="text" maxlength="60" placeholder="e.g. Our evening walk" value="${esc(caption.split("\n")[0].slice(0, 60))}" /></label>
+    <label class="field"><span>The memory (optional)</span><textarea maxlength="3000" placeholder="Write something about this moment…">${esc(caption)}</textarea></label>
+    <p class="form-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close>Cancel</button>
+      <button class="btn btn-primary" data-save>Upload</button>
+    </div>`);
+  const title = $("input", m), text = $("textarea", m), err = $(".form-error", m), save = $("[data-save]", m);
+  setTimeout(() => title.focus(), 60);
+  save.addEventListener("click", async () => {
+    if (!title.value.trim()) { err.textContent = "Give this memory a title 💭"; title.focus(); return; }
+    save.disabled = true;
+    save.innerHTML = spinner("sm dark");
+    try {
+      // same photo, no re-upload; "uploaded by" is whoever tapped the button
+      const ref = await addDoc(collection(db, "memories"), {
+        url: msg.media.url, publicId: msg.media.publicId || null,
+        width: msg.media.width || null, height: msg.media.height || null,
+        title: title.value.trim(), text: text.value.trim(),
+        byUid: uid(), byName: myName(), createdAt: serverTimestamp(), fromMessage: id
+      });
+      notifyPartner("memory", notifText("memory"), { refId: ref.id });
+      m.close();
+      toast("Uploaded to Memories 🔐");
+    } catch (e) {
+      err.textContent = friendlyError(e, "Couldn't upload. Try again.");
+      save.disabled = false;
+      save.textContent = "Upload";
+    }
+  });
 }
 
 /* ------------------------------------------------------------------ timeline */
@@ -249,7 +303,7 @@ export function updateChat() {
     const showDate = !prevDate || !sameDay(prevDate, d);
     prevDate = d;
     seen.add(it.id);
-    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.status}|${it.duration}|${it.replyTo?.id}|${!!it.editedAt}|${Math.floor(d.getTime() / 60000)}`;
+    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.status}|${it.duration}|${it.replyTo?.id}|${!!it.editedAt}|${it.type === "image" && inMemories(it.media?.url)}|${Math.floor(d.getTime() / 60000)}`;
     let r = rendered.get(it.id);
     if (!r || r.sig !== sig) {
       const el = document.createElement("div");
@@ -793,7 +847,7 @@ function bindSwipe() {
   list.addEventListener("pointerdown", e => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const row = e.target.closest('.msg-row[data-kind="msg"]');
-    if (!row || e.target.closest("video, a, .v-play, .quote")) return;
+    if (!row || e.target.closest("video, a, .v-play, .quote, .to-mem")) return;
     g = { row, msg: row.querySelector(".msg"), x: e.clientX, y: e.clientY, dx: 0, horizontal: null, id: e.pointerId };
     g.timer = setTimeout(() => {
       if (!g || g.horizontal) return;

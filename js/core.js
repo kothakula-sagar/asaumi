@@ -440,14 +440,19 @@ export function confirmDialog({ icon = "warn", title, text, ok = "Yes", cancel =
 
 // Full-screen image viewer with download
 export function viewImage(url, name = "asaumi-photo") {
+  // Photo takes about 75% of the screen, with Download and Close underneath
   const m = openModal(`
-    <img class="viewer-img" src="${esc(cld(url, "f_auto,q_auto,w_2000"))}" alt="" />
+    <div class="viewer-box"><img class="viewer-img" src="${esc(cld(url, "f_auto,q_auto,w_2000"))}" alt="" /></div>
     <div class="viewer-bar">
-      <button class="icon-btn" data-dl aria-label="Download">${ICONS.download}</button>
-      <button class="icon-btn" data-close aria-label="Close">${ICONS.close}</button>
+      <button class="btn btn-ghost btn-sm" data-close>${ICONS.close} Close</button>
+      <button class="btn btn-primary btn-sm" data-dl>${ICONS.download} Download</button>
     </div>`, { cls: "viewer" });
-  $("[data-dl]", m).addEventListener("click", () => downloadFile(url, name));
-  $(".viewer-img", m).addEventListener("click", m.close);
+  $("[data-dl]", m).addEventListener("click", async e => {
+    const b = e.currentTarget;
+    b.disabled = true;
+    await downloadFile(url, name);
+    b.disabled = false;
+  });
 }
 
 // Re-verify the Firebase password (used for PIN reset and password change)
