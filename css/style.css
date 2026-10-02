@@ -34,6 +34,7 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; min-height: 100%; }
+html, body { max-width: 100%; overflow-x: hidden; } /* never let anything make the page wider than the phone */
 html { scrollbar-gutter: stable; }
 body {
   font-family: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -753,10 +754,13 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
    Chat
    ========================================================================== */
 .chat-view { animation: fadeIn .25s ease both; }
-.chat { display: grid; grid-template-rows: auto 1fr auto; height: 100%; min-height: 0; position: relative; }
+/* minmax(0, 1fr): the chat always fits the screen. Without it a long name in the header
+   (e.g. "Sagar Kothakula" with a large phone font) stretched the chat wider than the screen. */
+.chat { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto; height: 100%; min-height: 0; width: 100%; position: relative; }
+.chat > * { min-width: 0; }
 .chat-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 26px; z-index: 2; }
 .chat-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
-.chat-who-text { min-width: 0; display: grid; }
+.chat-who-text { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); } /* long names end with "…" */
 .chat-who-text b { font-size: 18px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-who-text small { font-size: 13px; color: var(--muted); font-weight: 600; }
 .chat-who-text small.typing { color: var(--sky-light); font-weight: 800; }
