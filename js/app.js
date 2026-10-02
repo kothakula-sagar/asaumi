@@ -25,6 +25,9 @@ import { onBirthdaysChanged, maybeShowSurprise, syncBirthdayNotification } from 
 import { onLocalNotificationTap } from "./native.js";
 import { scheduleMealCheck, sinceKey } from "./meals.js";
 import { maybeShowStoryMessage } from "./relationship.js";
+import { initShare, applyShareIfReady } from "./share.js";
+
+initShare(); // "Share to Asaumi" from other apps
 
 $$("[data-icon]").forEach(el => (el.innerHTML = ICONS[el.dataset.icon]));
 applyBrandChrome(); // last saved name / icon, so the login screen shows them too
@@ -100,6 +103,7 @@ async function loadPin() {
 hooks.loadPin = loadPin;
 
 hooks.onUnlock = () => {
+  applyShareIfReady(); // something was shared to Asaumi → open the chat with it
   if (!state.me?.name) askName();
   markRead();
   startLocation();

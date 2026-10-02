@@ -97,6 +97,23 @@ export async function openExternal(url) {
   window.open(url, "_blank", "noopener");
 }
 
+// Opens a link in its own app when installed (YouTube, Instagram, Spotify…), otherwise the browser
+const Launcher = plugin("AppLauncher");
+export async function openInApp(url) {
+  if (Launcher) { try { const r = await Launcher.openUrl({ url }); if (r?.completed !== false) return; } catch { /* fall through */ } }
+  return openExternal(url);
+}
+
+/* ------------------------------------------------------------------ "Share to Asaumi" from other apps */
+// Native side: native-android/ShareReceiverPlugin.java copies shared photos/videos into the app cache.
+const ShareRx = plugin("ShareReceiver");
+export async function takePendingShare() {
+  if (!ShareRx) return null;
+  try { return (await ShareRx.getPending())?.share || null; } catch { return null; }
+}
+export function onShareReceived(cb) { try { ShareRx?.addListener("shared", () => cb()); } catch { /* ignore */ } }
+export const fileSrc = path => (Cap?.convertFileSrc ? Cap.convertFileSrc(path) : path);
+
 /* ------------------------------------------------------------------ sending push (free, no server) */
 // The app that performs an action (sends a message, adds a memory, calls) sends the notification
 // straight to the other phone through Firebase Cloud Messaging (free on the Spark plan).

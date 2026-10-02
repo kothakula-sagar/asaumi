@@ -68,8 +68,42 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
 `;
     m = m.replace("</application>", meta + "    </application>");
   }
+  // ---- 5) "Share to Asaumi": appear in the phone's share menu for text, links, photos and videos ----
+  if (!m.includes("android.intent.action.SEND")) {
+    const filters = `
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+`;
+    m = m.replace("</activity>", `${filters}        </activity>`);
+  }
   fs.writeFileSync(manifestPath, m);
-  console.log("Manifest permissions installed.");
+  console.log("Manifest permissions and share targets installed.");
+
+  // ---- 6) Our MainActivity + ShareReceiver plugin (Java) ----
+  const appId = JSON.parse(fs.readFileSync(path.join(root, "capacitor.config.json"), "utf8")).appId;
+  const javaDir = path.join(appDir, "src", "main", "java", ...appId.split("."));
+  fs.mkdirSync(javaDir, { recursive: true });
+  for (const f of fs.readdirSync(javaDir)) if (/^MainActivity\.(java|kt)$/.test(f)) fs.rmSync(path.join(javaDir, f));
+  for (const f of fs.readdirSync(path.join(root, "native-android"))) {
+    const src = fs.readFileSync(path.join(root, "native-android", f), "utf8").replace(/^package [\w.]+;/m, `package ${appId};`);
+    fs.writeFileSync(path.join(javaDir, f), src);
+  }
+  console.log("Share receiver installed.");
 
   // ---- 5) Firebase Android config (enables push notifications) ----
   const gs = path.join(root, "google-services.json");

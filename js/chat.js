@@ -9,6 +9,7 @@ import {
 import { typingPing, typingStop, systemNotify, pushPartner, notifyPartner } from "./notify.js";
 import { LIMITS } from "./config.js";
 import { stickerPanes, bindStickerPanel, renderOurStickers, saveAsSticker } from "./stickers.js";
+import { linkPreviewHtml, handleLinkClick } from "./linkpreview.js";
 export { renderOurStickers };
 
 const EMOJIS = "❤️ 😘 🥰 😍 😊 😂 🤣 😅 😇 🙈 😴 🥺 😢 😭 😤 😡 🤗 🤔 😌 😋 😎 🤍 💜 💙 💕 💖 💞 💫 ✨ 🌙 ⭐ 🌸 🌹 🌈 ☕ 🍫 🍕 🎶 🎉 🎂 🙏 👍 👌 🤞 👏 🫶 💪 🔥 💯".split(" ");
@@ -124,6 +125,7 @@ export function mountChat() {
   bindSwipe();
   els.list.addEventListener("click", e => {
     if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); return; }
+    if (handleLinkClick(e)) return;
     const quote = e.target.closest("[data-jump]");
     if (quote) { jumpTo(quote.dataset.jump); return; }
     const toMem = e.target.closest("[data-to-mem]");
@@ -187,7 +189,7 @@ function contentHtml(m) {
     case "call":
       return "";
     default:
-      return `<p class="msg-text ${emojiOnly(m.text || "") ? "jumbo" : ""}">${linkify(esc(m.text || ""))}</p>`;
+      return `<p class="msg-text ${emojiOnly(m.text || "") ? "jumbo" : ""}">${linkify(esc(m.text || ""))}</p>${linkPreviewHtml(m.text || "")}`;
   }
 }
 
@@ -482,6 +484,16 @@ async function sendMessage(data) {
 
 let keepKeyboard = false;
 
+// Put shared text into the message box (kept, not sent), e.g. a link shared from YouTube
+export function prefillComposer(text) {
+  if (!els || !text) return;
+  const t = els.input;
+  t.value = t.value.trim() ? `${t.value.trim()} ${text}` : text;
+  autosize();
+  syncSendButton();
+  setTimeout(() => { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }, 300);
+}
+
 function sendText() {
   const text = els.input.value.replace(/\s+$/, "");
   if (!text.trim()) return;
@@ -549,12 +561,13 @@ function queueUpload(p) {
 }
 
 /* ------------------------------------------------------------------ media preview before send */
-function previewMedia(file) {
+// onDone() runs when this preview is finished (sent, cancelled or rejected), so shared files can queue
+export function previewMedia(file, onDone = () => {}) {
   const isVideo = file.type.startsWith("video/");
   const isImage = file.type.startsWith("image/");
-  if (!isVideo && !isImage) { toast("Please choose a photo or a video."); return; }
+  if (!isVideo && !isImage) { toast("Please choose a photo or a video."); onDone(); return; }
   const maxMB = isVideo ? LIMITS.videoMB : LIMITS.imageMB * 3; // images are compressed before upload
-  if (file.size > maxMB * 1024 * 1024) { toast(`That ${isVideo ? "video" : "photo"} is larger than ${maxMB} MB.`); return; }
+  if (file.size > maxMB * 1024 * 1024) { toast(`That ${isVideo ? "video" : "photo"} is larger than ${maxMB} MB.`); onDone(); return; }
   const url = URL.createObjectURL(file);
   let sent = false;
   const m = openModal(`
@@ -566,7 +579,7 @@ function previewMedia(file) {
       <button class="btn btn-ghost" data-close>Cancel</button>
       <button class="btn btn-primary" data-send>${ICONS.send} Send</button>
     </div>`);
-  m.onclose = () => { if (!sent) URL.revokeObjectURL(url); };
+  m.onclose = () => { if (!sent) URL.revokeObjectURL(url); setTimeout(onDone, 250); };
   const mediaEl = $(".media-preview > *", m);
   const dims = {};
   mediaEl.addEventListener(isVideo ? "loadedmetadata" : "load", () => {
@@ -880,7 +893,7 @@ function bindSwipe() {
   list.addEventListener("pointerdown", e => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const row = e.target.closest('.msg-row[data-kind="msg"]');
-    if (!row || e.target.closest("video, a, .v-play, .quote, .to-mem")) return;
+    if (!row || e.target.closest("video, a, .v-play, .quote, .to-mem, .lp-media, .lp-open, .lp-frame")) return;
     g = { row, msg: row.querySelector(".msg"), x: e.clientX, y: e.clientY, dx: 0, horizontal: null, id: e.pointerId };
     g.timer = setTimeout(() => {
       if (!g || g.horizontal) return;
