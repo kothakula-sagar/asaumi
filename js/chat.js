@@ -74,7 +74,10 @@ export function mountChat() {
         </div>
         <div class="c-row c-text">
           <button class="c-btn" id="c-emoji" aria-label="Emoji">${ICONS.smile}</button>
-          <label class="c-btn" aria-label="Photo or video">${ICONS.image}<input type="file" id="c-file" accept="image/*,video/*" hidden /></label>
+          <label class="c-btn" aria-label="Photo or video from gallery">${ICONS.image}<input type="file" id="c-file" accept="image/*,video/*" hidden /></label>
+          <button type="button" class="c-btn c-camera" id="c-camera" aria-label="Camera">${ICONS.camera}</button>
+          <input type="file" id="c-cam-photo" accept="image/*" capture="environment" hidden />
+          <input type="file" id="c-cam-video" accept="video/*" capture="environment" hidden />
           <textarea id="c-input" rows="1" maxlength="4000" placeholder="Message…"></textarea>
           <button class="c-send" id="c-send" aria-label="Record voice">${ICONS.mic}</button>
         </div>
@@ -477,12 +480,17 @@ async function sendMessage(data) {
   return ref;
 }
 
+let keepKeyboard = false;
+
 function sendText() {
   const text = els.input.value.replace(/\s+$/, "");
   if (!text.trim()) return;
+  const keep = keepKeyboard || document.activeElement === els.input;
+  keepKeyboard = false;
   els.input.value = "";
   autosize();
   syncSendButton();
+  if (keep) els.input.focus({ preventScroll: true }); // keyboard stays open until the user closes it
   typingStop();
   const reply = takeReply();
   sendMessage({ type: "text", text, ...(reply ? { replyTo: reply } : {}) }).catch(err => {
@@ -744,6 +752,7 @@ function syncSendButton() {
   els.send.innerHTML = has ? ICONS.send : ICONS.mic;
   els.send.setAttribute("aria-label", has ? "Send" : "Record voice");
   els.send.classList.toggle("is-send", has);
+  els.composer.classList.toggle("typing", has); // hide the camera while typing, like WhatsApp
 }
 
 function bindComposer() {
@@ -756,6 +765,9 @@ function bindComposer() {
     if (e.key === "Enter" && !e.shiftKey && !coarse && !e.isComposing) { e.preventDefault(); sendText(); }
   });
   els.input.addEventListener("blur", () => typingStop());
+  // Keep the keyboard open after sending: the Send button must not take focus away from the text box
+  els.send.addEventListener("pointerdown", () => { keepKeyboard = document.activeElement === els.input; });
+  els.send.addEventListener("mousedown", e => { if (els.input.value.trim()) e.preventDefault(); });
   els.send.addEventListener("click", () => (els.input.value.trim() ? sendText() : startRecording()));
   $("#c-emoji").addEventListener("click", () => { els.emoji.hidden = !els.emoji.hidden; });
   els.emoji.addEventListener("click", e => {
@@ -769,6 +781,27 @@ function bindComposer() {
     if (!coarse) t.focus();
   });
   bindStickerPanel(els.emoji, sendSticker);
+
+  // Camera: take a photo or record a video, then the usual preview → Send
+  $("#c-camera").addEventListener("click", () => {
+    const m = openModal(`
+      <div class="msg-menu">
+        <button data-cam="photo">${ICONS.camera}<span>Take photo</span></button>
+        <button data-cam="video">${ICONS.video}<span>Record video</span></button>
+      </div>
+      <button class="btn btn-ghost btn-block" data-close>Cancel</button>`, { cls: "action-sheet" });
+    m.querySelector(".msg-menu").addEventListener("click", e => {
+      const b = e.target.closest("[data-cam]");
+      if (!b) return;
+      $(b.dataset.cam === "video" ? "#c-cam-video" : "#c-cam-photo").click(); // opens the camera app
+      m.close();
+    });
+  });
+  ["#c-cam-photo", "#c-cam-video"].forEach(sel => $(sel).addEventListener("change", e => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (f) previewMedia(f);
+  }));
   $("#c-file").addEventListener("change", e => {
     const f = e.target.files[0];
     e.target.value = "";

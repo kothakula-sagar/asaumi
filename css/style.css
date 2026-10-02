@@ -928,6 +928,10 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .st-add svg { width: 22px; height: 22px; }
 .st-credit { grid-column: 1 / -1; padding: 4px 4px 2px; font-size: 11.5px; color: var(--faint); text-align: center; }
 
+/* camera button in the chat bar */
+.composer.typing .c-camera { display: none; }
+@media (max-width: 380px) { .c-row .c-btn { width: 40px; padding: 9px; } }
+
 /* "Upload to Memories" next to chat photos */
 .msg.t-image { align-items: center; gap: 8px; }
 .msg.me .to-mem { order: -1; }
