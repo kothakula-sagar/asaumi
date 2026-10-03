@@ -10,6 +10,7 @@ import { typingPing, typingStop, systemNotify, pushPartner, notifyPartner } from
 import { LIMITS } from "./config.js";
 import { stickerPanes, bindStickerPanel, renderOurStickers, saveAsSticker } from "./stickers.js";
 import { linkPreviewHtml, handleLinkClick } from "./linkpreview.js";
+import { carouselHtml, wireCarousel } from "./carousel.js";
 export { renderOurStickers };
 
 const EMOJIS = "❤️ 😘 🥰 😍 😊 😂 🤣 😅 😇 🙈 😴 🥺 😢 😭 😤 😡 🤗 🤔 😌 😋 😎 🤍 💜 💙 💕 💖 💞 💫 ✨ 🌙 ⭐ 🌸 🌹 🌈 ☕ 🍫 🍕 🎶 🎉 🎂 🙏 👍 👌 🤞 👏 🫶 💪 🔥 💯".split(" ");
@@ -75,7 +76,7 @@ export function mountChat() {
         </div>
         <div class="c-row c-text">
           <button class="c-btn" id="c-emoji" aria-label="Emoji">${ICONS.smile}</button>
-          <label class="c-btn" aria-label="Photo or video from gallery">${ICONS.image}<input type="file" id="c-file" accept="image/*,video/*" hidden /></label>
+          <label class="c-btn" aria-label="Photo or video from gallery">${ICONS.image}<input type="file" id="c-file" accept="image/*,video/*" multiple hidden /></label>
           <button type="button" class="c-btn c-camera" id="c-camera" aria-label="Camera">${ICONS.camera}</button>
           <input type="file" id="c-cam-photo" accept="image/*" capture="environment" hidden />
           <input type="file" id="c-cam-video" accept="video/*" capture="environment" hidden />
@@ -168,8 +169,27 @@ function mediaBox(media, inner) {
   return `<div class="msg-media" style="aspect-ratio:${ratio}">${inner}</div>`;
 }
 
+/* ------------------------------------------------------------------ albums (several photos / videos sent together) */
+// Stored as a normal image/video message (media = the first item) plus media.items,
+// so the Firestore rules don't change and older app versions still show the first photo.
+const MAX_ALBUM = 10;
+const slidesOf = m => (m?.media?.items?.length ? m.media.items : m?.media?.url ? [{ ...m.media, kind: m.type }] : []);
+const isAlbum = m => (m?.media?.items?.length || 0) > 1;
+const carIdx = new Map(); // message id → slide being shown, kept across re-renders
+const curSlide = m => slidesOf(m)[carIdx.get(m.id) || 0] || slidesOf(m)[0];
+
+function albumHtml(m) {
+  const slides = slidesOf(m);
+  const f = slides[0];
+  const ratio = f?.width && f?.height ? `${f.width} / ${f.height}` : "4 / 5";
+  return carouselHtml(slides.map(s => s.kind === "video"
+    ? `<video src="${esc(s.url)}" poster="${esc(videoPoster(s.url))}" preload="metadata" controls playsinline></video>`
+    : `<img src="${esc(cld(s.url, "f_auto,q_auto,w_720"))}" alt="Photo" loading="lazy" data-view-img="${esc(s.url)}" />`), { id: m.id, ratio });
+}
+
 function contentHtml(m) {
   const cap = m.text ? `<p class="msg-text">${linkify(esc(m.text))}</p>` : "";
+  if (isAlbum(m)) return albumHtml(m) + cap;
   switch (m.type) {
     case "image":
       return mediaBox(m.media, `<img src="${esc(cld(m.media?.url, "f_auto,q_auto,w_720"))}" alt="Photo" loading="lazy" data-view-img="${esc(m.media?.url)}" />`) + cap;
@@ -211,36 +231,45 @@ function itemHtml(it, showDate) {
   if (it.kind === "call") return sep + callRowHtml(it);
   const mine = it.from === uid();
   return `${sep}
-    <div class="msg ${mine ? "me" : "them"} t-${it.type}">
+    <div class="msg ${mine ? "me" : "them"} t-${it.type} ${isAlbum(it) ? "album" : ""}">
       <div class="bubble">
         <span class="swipe-ico">${ICONS.reply}</span>
         ${quoteHtml(it.replyTo)}
         ${contentHtml(it)}
         <div class="meta">${it.editedAt ? '<span class="edited">edited</span>' : ""}<span>${fmtTime(it.createdAt)}</span>${mine ? `<span class="status">${statusHtml(it)}</span>` : ""}</div>
       </div>
-      ${it.type === "image" && it.media?.url ? toMemoryButton(it) : ""}
+      ${it.media?.url && slidesOf(it).some(s => s.kind === "image") ? toMemoryButton(it.id, curSlide(it)) : ""}
     </div>`;
 }
 
 /* ------------------------------------------------------------------ chat photo → Memories */
-const inMemories = url => state.memories.some(m => m.url === url);
+const inMemories = url => !!url && state.memories.some(m => m.url === url || m.items?.some(x => x.url === url));
 
-function toMemoryButton(it) {
-  const saved = inMemories(it.media.url);
+// In an album the button follows the slide on screen (hidden on videos: Memories are photos)
+function toMemoryButton(id, slide) {
+  const saved = inMemories(slide?.url);
   return `
-    <button type="button" class="to-mem ${saved ? "saved" : ""}" data-to-mem="${it.id}" aria-label="${saved ? "In Memories" : "Upload to Memories"}">
+    <button type="button" class="to-mem ${saved ? "saved" : ""}" data-to-mem="${id}" aria-label="${saved ? "In Memories" : "Upload to Memories"}" ${slide?.kind === "video" ? "hidden" : ""}>
       <span>${saved ? ICONS.check : ICONS.lock}</span><small>${saved ? "Saved" : "Memories"}</small>
     </button>`;
 }
 
+function onSlide(id, i) {
+  carIdx.set(id, i);
+  const btn = rendered.get(id)?.el.querySelector(".to-mem");
+  const msg = state.messages.find(x => x.id === id);
+  if (btn && msg) btn.outerHTML = toMemoryButton(id, slidesOf(msg)[i]);
+}
+
 function uploadToMemories(id) {
   const msg = state.messages.find(x => x.id === id);
-  if (!msg?.media?.url) return;
-  if (inMemories(msg.media.url)) { toast("Already in Memories 🔐"); return; }
+  const photo = msg && curSlide(msg);
+  if (!photo?.url || photo.kind === "video") return;
+  if (inMemories(photo.url)) { toast("Already in Memories 🔐"); return; }
   const caption = (msg.text || "").trim();
   const m = openModal(`
     <h2>Upload to Memories 🔐</h2>
-    <div class="media-preview"><img src="${esc(cld(msg.media.url, "f_auto,q_auto,w_900"))}" alt="" /></div>
+    <div class="media-preview"><img src="${esc(cld(photo.url, "f_auto,q_auto,w_900"))}" alt="" /></div>
     <label class="field"><span>Title</span><input type="text" maxlength="60" placeholder="e.g. Our evening walk" value="${esc(caption.split("\n")[0].slice(0, 60))}" /></label>
     <label class="field"><span>The memory (optional)</span><textarea maxlength="3000" placeholder="Write something about this moment…">${esc(caption)}</textarea></label>
     <p class="form-error"></p>
@@ -257,8 +286,9 @@ function uploadToMemories(id) {
     try {
       // same photo, no re-upload; "uploaded by" is whoever tapped the button
       const ref = await addDoc(collection(db, "memories"), {
-        url: msg.media.url, publicId: msg.media.publicId || null,
-        width: msg.media.width || null, height: msg.media.height || null,
+        url: photo.url, publicId: photo.publicId || null,
+        width: photo.width || null, height: photo.height || null,
+        items: [{ kind: "image", url: photo.url, publicId: photo.publicId || null, width: photo.width || null, height: photo.height || null }],
         title: title.value.trim(), text: text.value.trim(),
         byUid: uid(), byName: myName(), createdAt: serverTimestamp(), fromMessage: id
       });
@@ -308,7 +338,7 @@ export function updateChat() {
     const showDate = !prevDate || !sameDay(prevDate, d);
     prevDate = d;
     seen.add(it.id);
-    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.status}|${it.duration}|${it.replyTo?.id}|${!!it.editedAt}|${it.type === "image" && inMemories(it.media?.url)}|${Math.floor(d.getTime() / 60000)}`;
+    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.media?.items?.length}|${it.status}|${it.duration}|${it.replyTo?.id}|${!!it.editedAt}|${slidesOf(it).map(s => (inMemories(s.url) ? 1 : 0)).join("")}|${Math.floor(d.getTime() / 60000)}`;
     let r = rendered.get(it.id);
     if (!r || r.sig !== sig) {
       const el = document.createElement("div");
@@ -317,6 +347,8 @@ export function updateChat() {
       el.dataset.kind = it.kind;
       if (it.kind === "msg" && it.from === uid()) el.dataset.mine = "1";
       el.innerHTML = itemHtml(it, showDate);
+      const car = el.querySelector(".carousel");
+      if (car) { const id = it.id; wireCarousel(car, i => onSlide(id, i), carIdx.get(id) || 0); }
       if (!r && !firstPaint) el.classList.add("in");
       if (r) r.el.replaceWith(el);
       r = { el, sig, statusSig: "" };
@@ -370,7 +402,8 @@ function renderHeader() {
 
 function renderSide() {
   const p = state.partner;
-  const media = state.messages.filter(m => (m.type === "image" || m.type === "video") && m.media?.url).slice(-12).reverse();
+  const media = state.messages.filter(m => (m.type === "image" || m.type === "video") && m.media?.url)
+    .flatMap(m => slidesOf(m).map(s => ({ id: m.id, type: s.kind, media: s }))).slice(-12).reverse();
   const html = `
     <div class="side-profile">
       <span class="avatar-wrap">${avatarHtml(p || { name: "?" }, "xl")}${p ? presenceDot(p.uid) : ""}</span>
@@ -407,11 +440,13 @@ function renderTyping() {
 
 function renderPending() {
   els.pending.innerHTML = pending.map(p => `
-    <div class="msg-row"><div class="msg me t-${p.type} pending-up">
+    <div class="msg-row"><div class="msg me t-${p.type === "album" ? "image" : p.type} pending-up">
       <div class="bubble">
         ${p.type === "voice"
           ? `<div class="voice"><span class="v-play">${ICONS.mic}</span><div class="v-body"><div class="v-wave">${waveBars(p.wave, p.lid)}</div><div class="v-info"><span class="v-dur">${fmtDuration(p.duration)}</span></div></div></div>`
-          : mediaBox(p, p.type === "image" ? `<img src="${p.previewUrl}" alt="" />` : `<video src="${p.previewUrl}" muted playsinline></video>`)}
+          : p.type === "album"
+            ? `<div class="album-pending">${mediaBox(p.items[0], p.items[0].kind === "image" ? `<img src="${p.items[0].previewUrl}" alt="" />` : `<video src="${p.items[0].previewUrl}" muted playsinline></video>`)}<span class="car-count">${p.items.length} items</span></div>`
+            : mediaBox(p, p.type === "image" ? `<img src="${p.previewUrl}" alt="" />` : `<video src="${p.previewUrl}" muted playsinline></video>`)}
         ${p.status === "failed"
           ? `<div class="up-fail">${esc(p.error)} <button data-retry="${p.lid}">${ICONS.retry} Retry</button><button data-drop="${p.lid}">Discard</button></div>`
           : `<div class="up-progress"><div class="progress"><span style="width:${Math.round(p.progress * 100)}%"></span></div><small>Uploading ${Math.round(p.progress * 100)}%</small></div>`}
@@ -436,6 +471,7 @@ function dropPending(lid) {
   const [p] = pending.splice(i, 1);
   p.abort?.abort();
   if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+  p.items?.forEach(x => URL.revokeObjectURL(x.previewUrl));
   updateChat();
 }
 
@@ -531,6 +567,12 @@ async function startUpload(p) {
   updateChat();
   requestAnimationFrame(() => scrollBottom(true));
   try {
+    if (p.type === "album") {
+      const items = await uploadAlbum(p);
+      await sendMessage({ type: items[0].kind, text: p.caption || "", media: { ...items[0], items }, ...(p.replyTo ? { replyTo: p.replyTo } : {}) });
+      dropPending(p.lid);
+      return;
+    }
     const file = p.type === "image" ? await prepareImage(p.file) : p.file;
     const up = await upload(file, {
       sub: "chat", signal: p.abort.signal,
@@ -551,6 +593,31 @@ async function startUpload(p) {
     p.error = friendlyError(err, "Upload failed.");
     updateChat();
   }
+}
+
+// Uploads every item of an album, two at a time. Finished items are kept, so Retry only redoes the rest.
+async function uploadAlbum(p) {
+  const prog = p.items.map(x => (x.media ? 1 : 0));
+  const tick = () => { p.progress = prog.reduce((a, b) => a + b, 0) / prog.length; updatePendingProgress(p); };
+  const todo = p.items.map((x, i) => i).filter(i => !p.items[i].media);
+  const worker = async () => {
+    while (todo.length) {
+      const i = todo.shift();
+      const x = p.items[i];
+      const file = x.kind === "image" ? await prepareImage(x.file) : x.file;
+      const up = await upload(file, { sub: "chat", signal: p.abort.signal, onProgress: v => { prog[i] = v; tick(); } });
+      x.media = {
+        kind: x.kind, url: up.secure_url, publicId: up.public_id, resourceType: up.resource_type,
+        width: up.width || x.width || null, height: up.height || x.height || null,
+        format: up.format || null, bytes: up.bytes || null,
+        ...(x.kind === "video" ? { duration: up.duration || null } : {})
+      };
+      prog[i] = 1;
+      tick();
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  return p.items.map(x => x.media);
 }
 
 function queueUpload(p) {
@@ -590,6 +657,79 @@ export function previewMedia(file, onDone = () => {}) {
     if (!state.partner) { toast("Your person hasn't signed in to Asaumi yet."); return; }
     sent = true;
     queueUpload({ type: isVideo ? "video" : "image", file, previewUrl: url, caption: $("input", m).value.trim(), ...dims });
+    m.close();
+  });
+}
+
+// Several files picked at once → one album message; a single file → the normal preview
+export function previewFiles(files, onDone = () => {}) {
+  const ok = [];
+  for (const f of files) {
+    const isVideo = f.type.startsWith("video/");
+    if (!isVideo && !f.type.startsWith("image/")) { toast("Only photos and videos can be sent."); continue; }
+    const maxMB = isVideo ? LIMITS.videoMB : LIMITS.imageMB * 3;
+    if (f.size > maxMB * 1024 * 1024) { toast(`Skipped a ${isVideo ? "video" : "photo"} larger than ${maxMB} MB.`); continue; }
+    ok.push(f);
+  }
+  if (ok.length > MAX_ALBUM) toast(`You can send up to ${MAX_ALBUM} at once. The first ${MAX_ALBUM} are selected.`);
+  const pick = ok.slice(0, MAX_ALBUM);
+  if (!pick.length) { onDone(); return; }
+  if (pick.length === 1) { previewMedia(pick[0], onDone); return; }
+  previewAlbum(pick, onDone);
+}
+
+function previewAlbum(files, onDone) {
+  const items = files.map(file => ({ file, kind: file.type.startsWith("video/") ? "video" : "image", previewUrl: URL.createObjectURL(file) }));
+  let sent = false, at = 0;
+  const m = openModal(`
+    <h2>Selected media</h2>
+    <div class="media-preview album-preview"></div>
+    <div class="album-tools">
+      <p class="file-note"></p>
+      <button type="button" class="btn btn-ghost btn-sm" data-remove>${ICONS.trash} Remove this</button>
+    </div>
+    <label class="field"><input type="text" maxlength="500" placeholder="Add a caption (optional)" /></label>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close>Cancel</button>
+      <button class="btn btn-primary" data-send></button>
+    </div>`);
+  const box = $(".album-preview", m), note = $(".file-note", m), send = $("[data-send]", m);
+  m.onclose = () => { if (!sent) items.forEach(x => URL.revokeObjectURL(x.previewUrl)); setTimeout(onDone, 250); };
+
+  const draw = () => {
+    at = Math.min(at, items.length - 1);
+    box.innerHTML = carouselHtml(items.map(x => x.kind === "video"
+      ? `<video src="${x.previewUrl}" controls playsinline preload="metadata"></video>`
+      : `<img src="${x.previewUrl}" alt="" />`), { ratio: "1 / 1" });
+    wireCarousel($(".carousel", box), i => { at = i; }, at);
+    $$(".car-slide > *", box).forEach((el, i) => el.addEventListener(items[i].kind === "video" ? "loadedmetadata" : "load", () => {
+      items[i].width = el.videoWidth || el.naturalWidth;
+      items[i].height = el.videoHeight || el.naturalHeight;
+    }, { once: true }));
+    const photos = items.filter(x => x.kind === "image").length, videos = items.length - photos;
+    const mb = items.reduce((s, x) => s + x.file.size, 0) / 1048576;
+    note.textContent = [photos && `${photos} photo${photos > 1 ? "s" : ""}`, videos && `${videos} video${videos > 1 ? "s" : ""}`].filter(Boolean).join(" · ") + ` · ${mb.toFixed(1)} MB`;
+    send.innerHTML = `${ICONS.send} Send ${items.length}`;
+    $("[data-remove]", m).hidden = items.length < 2;
+  };
+  draw();
+
+  $("[data-remove]", m).addEventListener("click", () => {
+    if (items.length < 2) return;
+    const [x] = items.splice(at, 1);
+    URL.revokeObjectURL(x.previewUrl);
+    draw();
+  });
+  send.addEventListener("click", () => {
+    if (!state.partner) { toast("Your person hasn't signed in to Asaumi yet."); return; }
+    sent = true;
+    const caption = $("input", m).value.trim();
+    if (items.length === 1) {
+      const [x] = items;
+      queueUpload({ type: x.kind, file: x.file, previewUrl: x.previewUrl, caption, width: x.width, height: x.height });
+    } else {
+      queueUpload({ type: "album", items, caption, previewUrl: null });
+    }
     m.close();
   });
 }
@@ -816,9 +956,9 @@ function bindComposer() {
     if (f) previewMedia(f);
   }));
   $("#c-file").addEventListener("change", e => {
-    const f = e.target.files[0];
+    const files = [...e.target.files];
     e.target.value = "";
-    if (f) previewMedia(f);
+    if (files.length) previewFiles(files);
   });
   $("#rec-stop").addEventListener("click", () => stopRecording(false));
   $("#rec-cancel").addEventListener("click", () => stopRecording(true));
@@ -838,6 +978,11 @@ let lastMenuAt = 0;
 
 function previewOf(m) {
   const t = (m.text || "").replace(/\s+/g, " ").trim();
+  if (isAlbum(m)) {
+    const n = m.media.items.length, vids = m.media.items.filter(x => x.kind === "video").length;
+    const label = !vids ? `🖼️ ${n} photos` : vids === n ? `🎬 ${n} videos` : `🖼️ ${n} photos & videos`;
+    return (t ? `${label} · ${t}` : label).slice(0, 120);
+  }
   const s = {
     image: t ? `📷 ${t}` : "📷 Photo",
     video: t ? `🎬 ${t}` : "🎬 Video",
@@ -893,8 +1038,9 @@ function bindSwipe() {
   list.addEventListener("pointerdown", e => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const row = e.target.closest('.msg-row[data-kind="msg"]');
-    if (!row || e.target.closest("video, a, .v-play, .quote, .to-mem, .lp-media, .lp-open, .lp-frame")) return;
-    g = { row, msg: row.querySelector(".msg"), x: e.clientX, y: e.clientY, dx: 0, horizontal: null, id: e.pointerId };
+    if (!row || e.target.closest("video, a, .v-play, .quote, .to-mem, .lp-media, .lp-open, .lp-frame, .car-arrow")) return;
+    // inside an album a sideways swipe changes the photo instead of replying
+    g = { row, msg: row.querySelector(".msg"), x: e.clientX, y: e.clientY, dx: 0, horizontal: null, id: e.pointerId, inCar: !!e.target.closest(".car-track") };
     g.timer = setTimeout(() => {
       if (!g || g.horizontal) return;
       const id = g.row.dataset.id;
@@ -911,7 +1057,7 @@ function bindSwipe() {
     if (g.horizontal === null) {
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
       clearTimeout(g.timer);
-      g.horizontal = dx > 0 && Math.abs(dx) > Math.abs(dy) * 1.2;
+      g.horizontal = dx > 0 && Math.abs(dx) > Math.abs(dy) * 1.2 && !g.inCar;
       if (!g.horizontal) { g = null; return; }
       try { g.row.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     }
@@ -988,11 +1134,12 @@ function openMessageMenu(id) {
   const m = state.messages.find(x => x.id === id);
   if (!m) return;
   const mine = m.from === uid();
+  const shown = m.type === "sticker" ? m.media : curSlide(m); // in an album: the photo on screen
   const modal = openModal(`
     <div class="menu-preview">${esc(previewOf(m) || "Message")}</div>
     <div class="msg-menu">
       <button data-m="reply">${ICONS.reply}<span>Reply</span></button>
-      ${(m.type === "image" || m.type === "sticker") && m.media?.url ? `<button data-m="sticker">${ICONS.sparkle}<span>Save as sticker</span></button>` : ""}
+      ${(m.type === "sticker" || shown?.kind === "image") && shown?.url ? `<button data-m="sticker">${ICONS.sparkle}<span>Save as sticker</span></button>` : ""}
       ${mine && m.type !== "voice" && m.type !== "sticker" ? `<button data-m="edit">${ICONS.pencil}<span>${m.type === "text" ? "Edit" : m.text ? "Edit caption" : "Add caption"}</span></button>` : ""}
       ${m.text ? `<button data-m="copy">${ICONS.copy}<span>Copy text</span></button>` : ""}
       ${mine ? `<button data-m="delete" class="danger">${ICONS.trash}<span>Delete for both</span></button>` : ""}
@@ -1004,7 +1151,7 @@ function openMessageMenu(id) {
     modal.close();
     if (b.dataset.m === "reply") setReply(id);
     else if (b.dataset.m === "edit") editMessage(m);
-    else if (b.dataset.m === "sticker") saveAsSticker(m.media.url);
+    else if (b.dataset.m === "sticker") saveAsSticker(shown.url);
     else if (b.dataset.m === "copy") copyText(m.text);
     else if (b.dataset.m === "delete") {
       const ok = await confirmDialog({ icon: "trash", title: "Delete message?", text: "It will be removed for both of you.", ok: "Delete", danger: true });

@@ -4,9 +4,10 @@ import {
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, cld,
   prepareImage, upload, downloadFile, fmtDate, fmtFullDate, fmtTime, realNameOf, friendlyError,
-  spinner, viewImage, notifText, actions, views, hooks, $
+  spinner, viewImage, notifText, videoPoster, actions, views, hooks, $, $$
 } from "./core.js";
 import { notifyPartner } from "./notify.js";
+import { carouselHtml, wireCarousel } from "./carousel.js";
 import { askMemoriesPin, lockMemories } from "./lock.js";
 import { LIMITS } from "./config.js";
 
@@ -52,12 +53,29 @@ function renderMemories() {
       </div>`}`;
 }
 
+/* ------------------------------------------------------------------ photos & videos of a memory */
+// New memories keep every photo/video in `items`; `url` stays the cover photo (Home, older app versions).
+const MAX_ITEMS = 10;
+export const itemsOf = m => (m?.items?.length ? m.items : m?.url ? [{ kind: "image", url: m.url, publicId: m.publicId || null, width: m.width || null, height: m.height || null }] : []);
+const cardIdx = new Map(); // memory id → slide shown on its card
+const ratioOf = x => (x?.width && x?.height ? `${x.width} / ${x.height}` : "4 / 3");
+const thumbOf = (x, t) => (x.kind === "video" ? cld(videoPoster(x.url), t) : cld(x.url, `f_auto,q_auto,${t}`));
+const playBadge = `<span class="mem-play">${ICONS.play}</span>`;
+
+function memoryMedia(m) {
+  const items = itemsOf(m);
+  const slide = (x, i) => `
+    <button class="mem-slide" data-action="openMemory" data-id="${m.id}" data-i="${i}" aria-label="Open memory">
+      <img src="${esc(thumbOf(x, "c_fill,w_800,h_600"))}" alt="" loading="lazy" />${x.kind === "video" ? playBadge : ""}
+    </button>`;
+  if (items.length > 1) return `<div class="mem-img mem-car">${carouselHtml(items.map(slide), { id: m.id, ratio: "4 / 3" })}</div>`;
+  return `<div class="mem-img">${items[0] ? slide(items[0], 0) : ""}</div>`;
+}
+
 function memoryCard(m) {
   return `
     <article class="glass mem-card">
-      <button class="mem-img" data-action="openMemory" data-id="${m.id}" aria-label="Open memory">
-        <img src="${esc(cld(m.url, "f_auto,q_auto,c_fill,w_800,h_600"))}" alt="" loading="lazy" />
-      </button>
+      ${memoryMedia(m)}
       <div class="mem-body">
         <h3>❤️ ${esc(memoryTitle(m))}</h3>
         ${m.title && m.text ? `<p class="mem-text">${esc(previewText(m.text))}</p>` : ""}
@@ -72,16 +90,13 @@ function memoryCard(m) {
 
 /* ------------------------------------------------------------------ add / edit */
 function addMemoryModal(existing = null) {
-  let file = null;
   const editing = !!existing;
+  // entries: saved items ({ kind, url, … }) and new picks ({ kind, file, previewUrl })
+  const entries = editing ? itemsOf(existing).map(x => ({ ...x })) : [];
+  let at = 0;
   const m = openModal(`
     <h2>${editing ? "Edit memory" : "Create a memory"}</h2>
-    <label class="file-pick" id="pick">
-      <input type="file" accept="image/*" />
-      ${editing
-        ? `<img src="${esc(cld(existing.url, "f_auto,q_auto,w_900"))}" alt="" /><span class="pick-change">Change photo</span>`
-        : `<span class="big">📷</span><span>Choose a photo</span><small>JPG or PNG · up to ${LIMITS.imageMB} MB</small>`}
-    </label>
+    <div id="pick"></div>
     <label class="field">
       <span>Title</span>
       <input type="text" name="title" maxlength="60" placeholder="e.g. Goa Trip" value="${esc(existing?.title || (editing ? memoryTitle(existing) : ""))}" />
@@ -96,53 +111,126 @@ function addMemoryModal(existing = null) {
       <button class="btn btn-ghost" data-close>Cancel</button>
       <button class="btn btn-primary" data-save>${editing ? "Save changes" : "Save memory"}</button>
     </div>`, { dismissable: false });
-  const pick = $("#pick", m), input = $("input", pick), title = $("[name=title]", m), text = $("[name=text]", m);
+  const pick = $("#pick", m), title = $("[name=title]", m), text = $("[name=text]", m);
   const err = $(".form-error", m), bar = $(".progress", m), save = $("[data-save]", m), cancel = $("[data-close]", m);
-  let previewUrl;
+  const revoke = () => entries.forEach(e => e.previewUrl && URL.revokeObjectURL(e.previewUrl));
+  m.onclose = revoke;
 
-  input.addEventListener("change", () => {
-    const f = input.files[0];
-    if (!f) return;
-    if (!f.type.startsWith("image/")) { err.textContent = "Please choose an image file."; return; }
-    if (f.size > LIMITS.imageMB * 3 * 1024 * 1024) { err.textContent = `That photo is too large. Please pick one under ${LIMITS.imageMB} MB.`; return; }
-    file = f;
+  const fileInput = `<input type="file" accept="image/*,video/*" multiple />`;
+  function draw() {
+    if (!entries.length) {
+      pick.innerHTML = `
+        <label class="file-pick">
+          ${fileInput}
+          <span class="big">📷</span><span>Choose photos or videos</span>
+          <small>Pick one or more (up to ${MAX_ITEMS}) · photos up to ${LIMITS.imageMB} MB, videos up to ${LIMITS.videoMB} MB</small>
+        </label>`;
+    } else {
+      at = Math.min(at, entries.length - 1);
+      const slides = entries.map(e => {
+        const src = e.previewUrl || e.url;
+        return e.kind === "video"
+          ? `<video src="${esc(src)}" ${e.previewUrl ? "" : `poster="${esc(videoPoster(e.url))}"`} controls playsinline preload="metadata"></video>`
+          : `<img src="${esc(e.previewUrl || cld(e.url, "f_auto,q_auto,w_900"))}" alt="" />`;
+      });
+      const photos = entries.filter(e => e.kind === "image").length, videos = entries.length - photos;
+      pick.innerHTML = `
+        <div class="media-preview album-preview">${entries.length > 1 ? carouselHtml(slides, { ratio: "1 / 1" }) : slides[0]}</div>
+        <div class="album-tools">
+          <p class="file-note">${[photos && `${photos} photo${photos > 1 ? "s" : ""}`, videos && `${videos} video${videos > 1 ? "s" : ""}`].filter(Boolean).join(" · ")}</p>
+          <span class="album-btns">
+            ${entries.length < MAX_ITEMS ? `<label class="btn btn-ghost btn-sm">${ICONS.plus} Add${fileInput}</label>` : ""}
+            <button type="button" class="btn btn-ghost btn-sm" data-remove>${ICONS.trash} Remove</button>
+          </span>
+        </div>`;
+      wireCarousel($(".carousel", pick), i => { at = i; }, at);
+      $("[data-remove]", pick).addEventListener("click", () => {
+        const [x] = entries.splice(at, 1);
+        if (x?.previewUrl) URL.revokeObjectURL(x.previewUrl);
+        draw();
+      });
+    }
+    const input = $("input[type=file]", pick);
+    if (input) { input.hidden = true; input.addEventListener("change", () => { addFiles([...input.files]); input.value = ""; }); }
+  }
+
+  function addFiles(files) {
     err.textContent = "";
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = URL.createObjectURL(f);
-    pick.innerHTML = `<img src="${previewUrl}" alt="" /><span class="pick-change">Change photo</span>`;
-    pick.append(input);
-    title.focus();
-  });
+    const before = entries.length;
+    for (const f of files) {
+      const kind = f.type.startsWith("video/") ? "video" : f.type.startsWith("image/") ? "image" : null;
+      if (!kind) { err.textContent = "Only photos and videos can be added."; continue; }
+      const maxMB = kind === "video" ? LIMITS.videoMB : LIMITS.imageMB * 3; // photos are compressed before upload
+      if (f.size > maxMB * 1024 * 1024) { err.textContent = `Skipped a ${kind === "video" ? "video" : "photo"} larger than ${maxMB} MB.`; continue; }
+      if (entries.length >= MAX_ITEMS) { err.textContent = `A memory can hold up to ${MAX_ITEMS} photos and videos.`; break; }
+      const e = { kind, file: f, previewUrl: URL.createObjectURL(f) };
+      // remember the size so the carousel and Home keep the right shape
+      const probe = kind === "video" ? document.createElement("video") : new Image();
+      probe.addEventListener(kind === "video" ? "loadedmetadata" : "load", () => {
+        e.width = probe.videoWidth || probe.naturalWidth;
+        e.height = probe.videoHeight || probe.naturalHeight;
+      }, { once: true });
+      if (kind === "video") probe.preload = "metadata";
+      probe.src = e.previewUrl;
+      entries.push(e);
+    }
+    if (entries.length > before) { at = before; draw(); if (!title.value) title.focus(); }
+  }
+  draw();
+
+  // uploads new picks two at a time; finished ones are kept, so "Try again" only redoes the rest
+  async function uploadNew() {
+    const todo = entries.filter(e => e.file && !e.url);
+    const total = todo.length;
+    if (!total) return;
+    bar.hidden = false;
+    const prog = new Map();
+    const tick = () => { $("span", bar).style.width = `${Math.round(([...prog.values()].reduce((a, b) => a + b, 0) / total) * 100)}%`; };
+    const queue = [...todo];
+    const worker = async () => {
+      while (queue.length) {
+        const e = queue.shift();
+        const file = e.kind === "image" ? await prepareImage(e.file) : e.file;
+        const up = await upload(file, { sub: "memories", onProgress: p => { prog.set(e, p); tick(); } });
+        Object.assign(e, {
+          url: up.secure_url, publicId: up.public_id, width: up.width || e.width || null, height: up.height || e.height || null,
+          ...(e.kind === "video" ? { duration: up.duration || null } : {})
+        });
+        prog.set(e, 1);
+        tick();
+      }
+    };
+    await Promise.all([worker(), worker()]);
+  }
 
   save.addEventListener("click", async () => {
-    if (!file && !editing) { err.textContent = "Choose a photo first."; return; }
+    if (!entries.length) { err.textContent = "Choose a photo or video first."; return; }
     if (!title.value.trim()) { err.textContent = "Give this memory a title 💭"; title.focus(); return; }
     err.textContent = "";
     save.disabled = cancel.disabled = true;
-    save.innerHTML = `${spinner("sm dark")} ${file ? "Uploading…" : "Saving…"}`;
+    const uploading = entries.some(e => !e.url);
+    save.innerHTML = `${spinner("sm dark")} ${uploading ? "Uploading…" : "Saving…"}`;
     try {
+      await uploadNew();
+      const items = entries.map(e => ({
+        kind: e.kind, url: e.url, publicId: e.publicId || null, width: e.width || null, height: e.height || null,
+        ...(e.kind === "video" ? { duration: e.duration || null } : {})
+      }));
+      // cover: the first photo (or the first video's preview picture)
+      const cover = items.find(x => x.kind === "image") || items[0];
+      const coverFields = {
+        url: cover.kind === "image" ? cover.url : videoPoster(cover.url),
+        publicId: cover.publicId, width: cover.width, height: cover.height
+      };
+      const data = { ...coverFields, items, title: title.value.trim(), text: text.value.trim() };
       if (editing) {
-        const changes = { title: title.value.trim(), text: text.value.trim(), editedAt: serverTimestamp() };
-        if (file) {
-          bar.hidden = false;
-          const up = await upload(await prepareImage(file), { sub: "memories", onProgress: p => ($("span", bar).style.width = `${Math.round(p * 100)}%`) });
-          Object.assign(changes, { url: up.secure_url, publicId: up.public_id, width: up.width, height: up.height });
-        }
-        await updateDoc(doc(db, "memories", existing.id), changes);
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        await updateDoc(doc(db, "memories", existing.id), { ...data, editedAt: serverTimestamp() });
         m.close();
         toast("Memory updated 💜");
         return;
       }
-      bar.hidden = false;
-      const up = await upload(await prepareImage(file), { sub: "memories", onProgress: p => ($("span", bar).style.width = `${Math.round(p * 100)}%`) });
-      const ref = await addDoc(collection(db, "memories"), {
-        url: up.secure_url, publicId: up.public_id, width: up.width, height: up.height,
-        title: title.value.trim(), text: text.value.trim(),
-        byUid: uid(), byName: myName(), createdAt: serverTimestamp()
-      });
+      const ref = await addDoc(collection(db, "memories"), { ...data, byUid: uid(), byName: myName(), createdAt: serverTimestamp() });
       notifyPartner("memory", notifText("memory"), { refId: ref.id });
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
       m.close();
       toast("Memory saved 💜");
     } catch (e) {
@@ -154,12 +242,17 @@ function addMemoryModal(existing = null) {
 }
 
 /* ------------------------------------------------------------------ detail */
-function openMemory(id) {
+function openMemory(id, start = 0) {
   const x = state.memories.find(m => m.id === id);
   if (!x) return;
   const mine = x.byUid === uid();
+  const items = itemsOf(x);
+  let at = Math.min(start, items.length - 1);
+  const slide = it => it.kind === "video"
+    ? `<video src="${esc(it.url)}" poster="${esc(videoPoster(it.url))}" controls playsinline preload="metadata"></video>`
+    : `<img src="${esc(cld(it.url, "f_auto,q_auto,w_1600"))}" alt="" data-full="${esc(it.url)}" />`;
   const m = openModal(`
-    <div class="detail-img"><img src="${esc(cld(x.url, "f_auto,q_auto,w_1600"))}" alt="" /></div>
+    <div class="detail-img ${items.length > 1 ? "has-car" : ""}">${items.length > 1 ? carouselHtml(items.map(slide), { ratio: ratioOf(items[0]) }) : slide(items[0])}</div>
     <h2 class="detail-title">❤️ ${esc(memoryTitle(x))}</h2>
     ${x.text ? `<p class="detail-text">${esc(x.text)}</p>` : ""}
     <div class="detail-meta">
@@ -169,17 +262,20 @@ function openMemory(id) {
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" data-close>Close</button>
-      <button class="btn btn-primary" data-dl>${ICONS.download} Download Image</button>
+      <button class="btn btn-primary" data-dl>${ICONS.download} Download</button>
     </div>
     ${mine ? `<div class="detail-links"><button class="edit-link" data-edit>${ICONS.pencil} Edit</button><button class="del-link" data-del>Delete this memory</button></div>` : ""}`, { cls: "wide" });
+  wireCarousel($(".carousel", m), i => { at = i; }, at);
   $("[data-edit]", m)?.addEventListener("click", () => { m.close(); addMemoryModal(x); });
+  // downloads the photo / video on screen
   $("[data-dl]", m).addEventListener("click", async e => {
     const b = e.currentTarget;
     b.disabled = true;
-    await downloadFile(x.url, `asaumi-${memoryTitle(x).replace(/[^\w-]+/g, "-").toLowerCase()}`);
+    const name = `asaumi-${memoryTitle(x).replace(/[^\w-]+/g, "-").toLowerCase()}${items.length > 1 ? `-${at + 1}` : ""}`;
+    await downloadFile(items[at].url, name);
     b.disabled = false;
   });
-  $(".detail-img img", m).addEventListener("click", () => viewImage(x.url, "asaumi-memory"));
+  $$(".detail-img img[data-full]", m).forEach(img => img.addEventListener("click", () => viewImage(img.dataset.full, "asaumi-memory")));
   $("[data-del]", m)?.addEventListener("click", async () => {
     if (!(await confirmDialog({ icon: "trash", title: "Delete memory?", text: "It will be removed for both of you.", ok: "Delete", danger: true }))) return;
     try { await deleteDoc(doc(db, "memories", id)); m.close(); toast("Memory deleted"); }
@@ -190,6 +286,12 @@ function openMemory(id) {
 /* ------------------------------------------------------------------ wiring */
 views.memories = {
   render: renderMemories,
+  mounted(root) {
+    $$(".mem-card .carousel[data-car]", root).forEach(car => {
+      const id = car.dataset.car;
+      wireCarousel(car, i => cardIdx.set(id, i), cardIdx.get(id) || 0);
+    });
+  },
   enter() { if (!state.memUnlocked) askMemoriesPin(); },
   leave() { lockMemories(); }        // locks again every time you leave Memories
 };
@@ -199,5 +301,5 @@ Object.assign(actions, {
     if (state.view !== "memories" || !state.memUnlocked) { hooks.go("memories"); return; }
     addMemoryModal();
   },
-  openMemory: d => openMemory(d.id)
+  openMemory: d => openMemory(d.id, Number(d.i) || 0)
 });

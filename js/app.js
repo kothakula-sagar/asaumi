@@ -358,6 +358,7 @@ hooks.render = function render() {
     $("#view").innerHTML = html;
     lastHtml.view = v;
     lastHtml.html = html;
+    views[v].mounted?.($("#view")); // e.g. Memories wires its carousels
   }
 };
 

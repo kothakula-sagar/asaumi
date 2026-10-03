@@ -2,7 +2,7 @@
 // The PIN comes first, every time; then the chat opens with the shared content ready (nothing is sent automatically).
 import { state, hooks, toast } from "./core.js";
 import { isNative, takePendingShare, onShareReceived, fileSrc } from "./native.js";
-import { prefillComposer, previewMedia } from "./chat.js";
+import { prefillComposer, previewFiles } from "./chat.js";
 import { lockApp } from "./lock.js";
 
 let pending = null; // { text, subject, files: [{ path, mimeType, name, size }] }
@@ -45,20 +45,20 @@ export function applyShareIfReady() {
   const full = subject && text && !text.includes(subject) && /^https?:\/\/\S+$/.test(text) ? `${subject} ${text}` : text || subject;
   if (full) prefillComposer(full);
 
-  // Photos / videos open the normal preview (Cancel / Send), one after another
-  const files = [...(s.files || [])];
-  if (files.length > 1) toast(`${files.length} items shared. Check and send them one by one.`);
-  const next = async () => {
-    const f = files.shift();
-    if (!f) return;
-    try {
-      const blob = await (await fetch(fileSrc(f.path))).blob();
-      previewMedia(new File([blob], f.name || "shared", { type: f.mimeType || blob.type }), next);
-    } catch (err) {
-      console.warn("[asaumi] shared file", err);
-      toast("Couldn't open a shared file.");
-      next();
+  // Photos / videos open the normal preview (Cancel / Send); several together become one album
+  const shared = s.files || [];
+  if (!shared.length) return;
+  setTimeout(async () => {
+    const files = [];
+    for (const f of shared) {
+      try {
+        const blob = await (await fetch(fileSrc(f.path))).blob();
+        files.push(new File([blob], f.name || "shared", { type: f.mimeType || blob.type }));
+      } catch (err) {
+        console.warn("[asaumi] shared file", err);
+        toast("Couldn't open a shared file.");
+      }
     }
-  };
-  if (files.length) setTimeout(next, 500);
+    if (files.length) previewFiles(files);
+  }, 500);
 }

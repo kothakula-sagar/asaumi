@@ -808,6 +808,46 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .msg-media img { cursor: zoom-in; }
 .msg-media video { object-fit: contain; background: #0b0430; }
 
+/* album carousel: several photos / videos in one message */
+.carousel { position: relative; width: min(280px, 64vw); max-height: 380px; border-radius: 18px; overflow: hidden; background: rgba(10, 4, 40, .3); }
+.msg.album .carousel { width: min(260px, 56vw); }
+.msg.album { align-items: center; gap: 8px; }
+.car-track { display: flex; width: 100%; height: 100%; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; touch-action: pan-x pan-y; }
+.car-track::-webkit-scrollbar { display: none; }
+.car-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
+.car-slide img, .car-slide video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.car-slide img { cursor: zoom-in; }
+.car-slide video { object-fit: contain; background: #0b0430; }
+.car-arrow { position: absolute; top: 50%; z-index: 2; width: 34px; height: 34px; margin-top: -17px; padding: 8px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(20, 8, 70, .55); border: 1px solid rgba(255, 255, 255, .35); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0, 0, 0, .3); transition: transform .15s, background .15s; }
+.car-arrow svg { width: 100%; height: 100%; }
+.car-arrow:hover { background: rgba(108, 59, 255, .75); }
+.car-arrow:active { transform: scale(.9); }
+.car-arrow.prev { left: 8px; }
+.car-arrow.next { right: 8px; }
+.car-arrow[hidden] { display: none; }
+.car-count { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 800; color: #fff; background: rgba(20, 8, 70, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); pointer-events: none; }
+.car-dots { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 2; display: flex; justify-content: center; gap: 5px; pointer-events: none; }
+.car-dots i { width: 6px; height: 6px; border-radius: 4px; background: rgba(255, 255, 255, .55); box-shadow: 0 0 3px rgba(0, 0, 0, .4); transition: width .2s, background .2s; }
+.car-dots i.on { width: 16px; background: #fff; box-shadow: 0 0 6px rgba(125, 211, 252, .9); }
+.carousel.on-video .car-dots { display: none; }
+.album-pending { position: relative; }
+.album-preview .carousel { width: 100%; max-height: 50svh; border-radius: 0; background: none; }
+.album-preview .car-slide img, .album-preview .car-slide video { object-fit: contain; cursor: default; }
+.album-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; }
+.album-tools .file-note { margin: 0; white-space: nowrap; }
+.to-mem[hidden] { display: none; }
+.album-btns { display: flex; gap: 8px; }
+.album-btns input { display: none; }
+/* Memories: card + detail carousels */
+.mem-slide { position: relative; display: block; width: 100%; height: 100%; }
+.mem-car .carousel { width: 100%; height: 100%; max-height: none; border-radius: 0; background: none; }
+.mem-car .car-slide img { cursor: pointer; }
+.mem-play { position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; padding: 14px 13px 14px 16px; border-radius: 50%; color: #fff; background: rgba(20, 8, 70, .55); border: 1px solid rgba(255, 255, 255, .4); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.detail-img video { display: block; width: 100%; max-height: 56svh; background: #0b0430; }
+.detail-img.has-car { cursor: default; }
+.detail-img .carousel { width: 100%; max-height: 56svh; border-radius: 0; background: none; }
+.detail-img .car-slide img { object-fit: contain; cursor: zoom-in; }
+
 .voice { display: flex; align-items: center; gap: 10px; min-width: 220px; padding: 2px 0; }
 .v-play { width: 42px; height: 42px; border-radius: 50%; flex: none; display: grid; place-items: center; padding: 11px 10px 11px 12px; color: var(--ink); background: linear-gradient(135deg, #fff, #e0f4ff); box-shadow: 0 0 12px rgba(125, 211, 252, .5); }
 .voice.playing .v-play { padding: 11px; }
