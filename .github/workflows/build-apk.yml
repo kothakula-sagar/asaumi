@@ -1,10 +1,13 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:        # lets you press "Run workflow" manually
   push:
     branches: [ main ]
     paths-ignore: [ "README.md", "HOW-TO-INSTALL-ON-PHONE.md" ]
+
+permissions:
+  contents: write           # lets the build publish the APK as the "latest" release (the app's Update button)
 
 jobs:
   build:
@@ -45,9 +48,50 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
+      # Same key every time → each new APK installs over the old one (no uninstall, nothing lost)
+      - name: Sign with your permanent key
+        env:
+          SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+          SIGNING_CERT: ${{ secrets.ANDROID_SIGNING_CERT }}
+        run: |
+          set -e
+          mkdir -p out
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          if [ -n "$SIGNING_KEY" ] && [ -n "$SIGNING_CERT" ]; then
+            echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/key.pk8"
+            echo "$SIGNING_CERT" | base64 -d > "$RUNNER_TEMP/cert.der"
+            BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+            "$BT/apksigner" sign --key "$RUNNER_TEMP/key.pk8" --cert "$RUNNER_TEMP/cert.der" --out out/Asaumi.apk "$APK"
+            "$BT/apksigner" verify --print-certs out/Asaumi.apk | head -n 3
+            rm -f "$RUNNER_TEMP/key.pk8" "$RUNNER_TEMP/cert.der"
+            echo "SIGNED=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Secrets ANDROID_SIGNING_KEY / ANDROID_SIGNING_CERT are missing - this APK uses a one-time key, so it can't update the installed app."
+            cp "$APK" out/Asaumi.apk
+          fi
+
       - name: Save the APK so you can download it
         uses: actions/upload-artifact@v4
         with:
           name: Asaumi-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: out/Asaumi.apk
           retention-days: 30
+
+      # The app's More → App updates downloads from this release
+      - name: Publish as the "latest" release
+        if: env.SIGNED == '1'    # only APKs with the permanent key can update the installed app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest out/Asaumi.apk \
+            --title "Asaumi build ${{ github.run_number }}" \
+            --notes "Version 1.${{ github.run_number }} - built $(date -u '+%Y-%m-%d %H:%M UTC')" \
+            --target "${{ github.sha }}" --latest
+
+      # Phones still on the old version get "a new version is ready" (needs the release above)
+      - name: Notify phones about the new version
+        if: env.SIGNED == '1'
+        run: node scripts/notify-update.js
+        env:
+          FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
