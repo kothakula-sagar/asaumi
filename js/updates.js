@@ -2,7 +2,7 @@
 // the app compares that build number with its own and downloads the new APK in Chrome.
 // Because every build is signed with the same permanent key, it installs over the old app (no uninstall, nothing lost).
 import { esc, ICONS, toast, openModal, scheduleRender, actions, $ } from "./core.js";
-import { isNative, openExternal, appInfo } from "./native.js";
+import { isNative, openExternal, appInfo, updateAlertsState } from "./native.js";
 
 const REPO = /*@REPO*/"";   // "owner/repo", filled in by the GitHub build
 const TAG = "latest";
@@ -76,7 +76,12 @@ const fmtDay = iso => { try { return new Date(iso).toLocaleDateString(undefined,
 
 export function updatesCard() {
   if (!isNative) return ""; // the web version always loads the newest code by itself
-  if (!infoAsked) { infoAsked = true; loadInfo().then(() => scheduleRender()); }
+  if (!infoAsked) {
+    infoAsked = true;
+    loadInfo().then(() => scheduleRender());
+    if (REPO && !latest) setTimeout(checkForUpdate, 300); // opening More (or tapping the update notification) checks right away
+  }
+  const alerts = updateAlertsState();
   const have = info ? `Version ${esc(info.version || "")}${info.build ? ` · build ${esc(String(info.build))}` : ""}` : "Version …";
   let status, button;
   if (!REPO) {
@@ -102,6 +107,12 @@ export function updatesCard() {
         <span class="set-ico">${ICONS.sparkle}</span>
         <span class="set-main"><b>${have}</b><small>${status}</small></span>
         ${button || `<button class="btn btn-ghost btn-sm" data-action="checkUpdate" ${checking || !REPO ? "disabled" : ""}>Check</button>`}
+      </div>
+      <div class="set-row">
+        <span class="set-ico">${ICONS.bell}</span>
+        <span class="set-main"><b>Notify me about new versions</b><small>${alerts.ok
+          ? "On ✓ You'll get a notification after every new build."
+          : alerts.error ? `Not on yet: ${esc(alerts.error)}` : "Turns on by itself once notifications work on this phone."}</small></span>
       </div>
     </div>`;
 }

@@ -10,6 +10,7 @@ import { weatherCard } from "./weather.js";
 import { partnerMealsCard } from "./meals.js";
 import { relationshipCard, storyLine } from "./relationship.js";
 import { birthdayBanner } from "./birthday.js";
+import { wishlistCard } from "./wishlist.js";
 
 function greeting() {
   const h = new Date().getHours();
@@ -102,6 +103,8 @@ function renderHome() {
         <button class="btn btn-ghost btn-block" data-nav="memories">${ICONS.lock} View Memories</button>
       </article>
 
+      ${wishlistCard()}
+
       <article class="glass hcard">
         <header class="hcard-head">
           <span class="hcard-ico">❤️</span>
@@ -154,6 +157,7 @@ function renderAsaumi() {
         <button class="us-act" data-action="startCall" data-kind="video"><span>${ICONS.video}</span>Video</button>
         <button class="us-act" data-action="startCall" data-kind="audio"><span>${ICONS.phone}</span>Call</button>
         <button class="us-act" data-nav="memories"><span>${ICONS.lock}</span>Memories</button>
+        <button class="us-act" data-nav="wishlist"><span>🎁</span>Wishes</button>
       </div>
     </section>
     ${movementsSection()}`;

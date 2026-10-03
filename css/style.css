@@ -886,6 +886,52 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .quote-mem .qm-body { display: grid; min-width: 0; max-width: none; opacity: 1; white-space: normal; }
 .quote-mem .qm-body span { max-width: 200px; }
 .mem-reply { margin-top: 10px; }
+/* Wishlist */
+.wish-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin: 0 0 10px; border-radius: 18px; }
+.wish-tabs button { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 11px 8px; border-radius: 14px; font-weight: 800; font-size: 15px; color: rgba(255, 255, 255, .8); transition: background .2s, color .2s; }
+.wish-tabs button.on { color: var(--ink); background: linear-gradient(135deg, #fff, #e0f4ff); box-shadow: 0 4px 14px rgba(20, 5, 90, .25); }
+.wish-count { min-width: 22px; padding: 1px 7px; border-radius: 99px; font-size: 12px; background: rgba(255, 255, 255, .22); }
+.wish-tabs button.on .wish-count { background: rgba(108, 59, 255, .14); }
+.wish-hint { margin: 0 4px 14px; font-size: 13.5px; color: rgba(255, 255, 255, .78); }
+.wish-list { display: grid; gap: 10px; }
+.wish { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 20px; }
+.wish-check { flex: none; width: 34px; height: 34px; padding: 8px; border-radius: 50%; color: transparent; border: 2px solid rgba(255, 255, 255, .6); transition: background .2s, color .2s, transform .15s; }
+.wish-check:active { transform: scale(.88); }
+.wish.done .wish-check { color: #fff; border-color: transparent; background: linear-gradient(135deg, #22d37a, #14b8a6); box-shadow: 0 0 12px rgba(34, 211, 122, .5); }
+.wish-body { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left; }
+.wish-emoji { flex: none; width: 42px; height: 42px; display: grid; place-items: center; font-size: 22px; border-radius: 14px; background: rgba(255, 255, 255, .14); }
+.wish-main { min-width: 0; display: grid; gap: 2px; }
+.wish-main b { font-size: 15.5px; overflow-wrap: anywhere; }
+.wish-note { font-size: 13px; opacity: .85; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.wish-meta { font-size: 11.5px; font-weight: 700; color: rgba(255, 255, 255, .65); }
+.wish.done .wish-main b { text-decoration: line-through; text-decoration-thickness: 2px; opacity: .7; }
+.wish.done { opacity: .85; }
+.wish-link { flex: none; width: 36px; height: 36px; border-radius: 12px; font-size: 17px; font-weight: 900; background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .3); }
+.wish-done-group { margin-top: 18px; }
+.wish-done-group summary { cursor: pointer; margin: 0 4px 10px; font-weight: 800; color: rgba(255, 255, 255, .85); }
+.wish-alldone { text-align: center; font-weight: 700; opacity: .85; }
+.wish-peek { list-style: none; margin: 4px 0 12px; padding: 0; display: grid; gap: 6px; }
+.wish-peek li { display: flex; align-items: center; gap: 8px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wish-peek li span { flex: none; }
+.wish-scope { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: -6px; }
+.wish-scope-opt { position: relative; cursor: pointer; }
+.wish-scope-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.wish-scope-opt > span { display: grid; gap: 2px; height: 100%; padding: 12px; border-radius: 16px; border: 2px solid rgba(255, 255, 255, .25); background: rgba(255, 255, 255, .08); transition: border-color .2s, background .2s; }
+.wish-scope-opt small { font-size: 12px; opacity: .8; }
+.wish-scope-opt input:checked + span { border-color: #fff; background: rgba(255, 255, 255, .2); box-shadow: 0 0 14px rgba(125, 211, 252, .45); }
+.wish-scope-opt input:focus-visible + span { outline: 2px solid var(--sky-light); outline-offset: 2px; }
+.wish-scope-note { margin: 8px 2px 14px; font-size: 12.5px; color: rgba(255, 255, 255, .75); }
+.wish-scope-fixed { margin: 0 0 14px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .12); font-size: 14px; }
+.wish-cats { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.wish-cat { cursor: pointer; }
+.wish-cat input { position: absolute; opacity: 0; pointer-events: none; }
+.wish-cat span { display: inline-block; padding: 7px 11px; border-radius: 99px; font-size: 13.5px; font-weight: 700; background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .25); }
+.wish-cat input:checked + span { color: var(--ink); background: #fff; border-color: #fff; }
+.wish-cat input:focus-visible + span { outline: 2px solid var(--sky-light); outline-offset: 2px; }
+.wish-detail-title { text-align: center; overflow-wrap: anywhere; }
+.wish-detail-title.done { text-decoration: line-through; opacity: .75; }
+.wish-open-link { margin: 4px 0 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* More → App updates */
 .update-new { color: #b6ffd8; font-weight: 800; }
 .update-steps { margin: 4px 0 12px; padding-left: 20px; display: grid; gap: 6px; line-height: 1.4; }

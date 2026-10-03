@@ -175,7 +175,7 @@ function play(btn, url) {
   btn.replaceWith(frame);
 }
 
-function openLink(url) {
+export function openLink(url) {
   if (/youtu\.?be|instagram\.com|spotify\.com|tiktok\.com|facebook\.com|fb\.watch/.test(url)) openInApp(url);
   else openExternal(url);
 }

@@ -86,6 +86,24 @@ service cloud.firestore {
       allow delete: if isMember() && resource.data.byUid == me();
     }
 
+    // Wishlist. "together": both can see it and either can tick it off.
+    // "personal": only the person who added it can read it at all. The list can't be changed after adding.
+    match /wishes/{id} {
+      allow read: if isMember() && (resource.data.scope == 'together' || resource.data.byUid == me());
+      allow create: if isMember()
+        && incoming().byUid == me()
+        && incoming().scope in ['together', 'personal']
+        && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 120;
+      allow update: if isMember()
+        && incoming().scope == resource.data.scope
+        && incoming().byUid == resource.data.byUid
+        && (
+          (resource.data.byUid == me() && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 120)
+          || (resource.data.scope == 'together' && onlyChanges(['done', 'doneAt', 'doneBy', 'doneByName']))
+        );
+      allow delete: if isMember() && resource.data.byUid == me();
+    }
+
     // Live-call signalling + metadata (no media is ever stored)
     match /calls/{callId} {
       allow read: if isMember();

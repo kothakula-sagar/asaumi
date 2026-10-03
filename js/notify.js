@@ -71,7 +71,8 @@ const PUSH_FOR = {
   memory: { page: "memories", tag: "memories" },
   movement: { page: "asaumi", tag: "movement" },
   missed_call: { page: "home", tag: "call", channel: CHANNELS.calls },
-  meal: { page: "home", tag: "meal" }
+  meal: { page: "home", tag: "meal" },
+  wish: { page: "wishlist", tag: "wishlist" }
 };
 
 /* ------------------------------------------------------------------ in-app notifications */
@@ -106,6 +107,7 @@ const NOTIF_META = {
   movement: { icon: "❤️", nav: "asaumi" },
   missed_call: { icon: "📹", nav: "home" },
   meal: { icon: "🍽️", nav: "home" },
+  wish: { icon: "🎁", nav: "wishlist" },
   message: { icon: "💬", nav: "chat" }
 };
 

@@ -32,6 +32,8 @@ export const state = {
   loaded: {},             // which snapshots have arrived
   memories: [],
   movements: [],
+  wishes: [],             // wishlist: shared "together" wishes + my own "personal" ones
+  wishError: null,
   calls: [],
   notifications: [],
   background: null,       // settings/background

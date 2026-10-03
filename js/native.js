@@ -30,6 +30,7 @@ function addPushListeners() {
     retries = 0;
     clearTimeout(retryTimer);
     tokenHandler?.(t.value);
+    subscribeUpdateTopic(t.value); // "a new version is ready" notifications
   });
   Push.addListener("registrationError", e => {
     console.warn("[asaumi] push registration failed", e);
@@ -130,13 +131,15 @@ function pemToDer(pem) {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
 }
 
-let oauth = null; // { token, exp }
-async function accessToken() {
+const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+const oauthCache = {}; // scope → { token, exp }
+async function accessToken(scope = FCM_SCOPE) {
+  const oauth = oauthCache[scope];
   if (oauth && oauth.exp > Date.now() + 60000) return oauth.token;
   const now = Math.floor(Date.now() / 1000);
   const unsigned = `${b64urlText(JSON.stringify({ alg: "RS256", typ: "JWT" }))}.${b64urlText(JSON.stringify({
     iss: PUSH_KEY.client_email,
-    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    scope,
     aud: "https://oauth2.googleapis.com/token",
     iat: now, exp: now + 3600
   }))}`;
@@ -150,11 +153,43 @@ async function accessToken() {
   });
   const data = parseBody(res.data);
   if (!data?.access_token) {
-    oauth = null;
+    delete oauthCache[scope];
     throw new Error(`Google sign-in for the sending key failed (${res.status}): ${data?.error_description || data?.error || JSON.stringify(data).slice(0, 200)}`);
   }
-  oauth = { token: data.access_token, exp: Date.now() + (data.expires_in || 3600) * 1000 };
-  return oauth.token;
+  oauthCache[scope] = { token: data.access_token, exp: Date.now() + (data.expires_in || 3600) * 1000 };
+  return oauthCache[scope].token;
+}
+
+/* ------------------------------------------------------------------ "new version" notifications */
+// This phone joins the FCM topic "asaumi-updates". After every GitHub build, the build sends one
+// notification to that topic, so phones still on the old version hear about it (even with the app closed).
+// Same subscription call the Firebase Admin SDK makes; free.
+export const UPDATE_TOPIC = "asaumi-updates";
+let topicState = { ok: false, error: "" };
+export const updateAlertsState = () => topicState;
+
+async function subscribeUpdateTopic(token) {
+  if (!canSendPush() || !token) { topicState = { ok: false, error: "This APK has no notification key." }; return; }
+  let done = "";
+  try { done = localStorage.getItem("asaumi.topicToken") || ""; } catch { /* ignore */ }
+  if (done === token) { topicState = { ok: true, error: "" }; return; }
+  try {
+    const auth = await accessToken(`${FCM_SCOPE} https://www.googleapis.com/auth/cloud-platform`);
+    const res = await Http.request({
+      method: "POST",
+      url: "https://iid.googleapis.com/iid/v1:batchAdd",
+      headers: { Authorization: `Bearer ${auth}`, access_token_auth: "true", "Content-Type": "application/json" },
+      data: { to: `/topics/${UPDATE_TOPIC}`, registration_tokens: [token] }
+    });
+    const d = parseBody(res.data);
+    const err = d?.results?.[0]?.error || (res.status >= 300 ? d?.error?.message || d?.error || `HTTP ${res.status}` : "");
+    if (err) throw new Error(typeof err === "string" ? err : JSON.stringify(err).slice(0, 160));
+    try { localStorage.setItem("asaumi.topicToken", token); } catch { /* ignore */ }
+    topicState = { ok: true, error: "" };
+  } catch (err) {
+    console.warn("[asaumi] update topic", err);
+    topicState = { ok: false, error: err.message || String(err) };
+  }
 }
 
 function parseBody(d) {

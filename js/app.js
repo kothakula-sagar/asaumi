@@ -18,6 +18,7 @@ import { watchIncoming, stopWatchingIncoming } from "./call.js";
 import "./memories.js";
 import { renderLock, resetPin } from "./lock.js";
 import "./movements.js";
+import "./wishlist.js";
 import "./home.js";
 import { askName } from "./settings.js";
 import { startLocation, stopLocation, checkNearChange } from "./together.js";
@@ -45,7 +46,7 @@ onAuthStateChanged(auth, async user => {
     resetChat();
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: 60, loaded: {},
-      memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null,
+      memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null, wishes: [], wishError: null,
       locations: {}, myPos: null, birthdays: null, stickers: [], meals: {}, relationship: undefined,
       view: "home", locked: false, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pin: null, pinReset: false
     });
@@ -175,6 +176,30 @@ function subscribe() {
     state.loaded.movements = true;
     scheduleRender();
   }, onErr));
+
+  // Wishlist: two listeners, because "personal" wishes are readable only by the person who added them
+  const wishParts = { together: [], mine: [] };
+  const mergeWishes = () => {
+    const all = new Map([...wishParts.together, ...wishParts.mine].map(w => [w.id, w]));
+    state.wishes = [...all.values()];
+    scheduleRender();
+  };
+  const wishErr = err => {
+    console.warn("[asaumi] wishes", err);
+    state.wishError = err?.code === "permission-denied" ? "rules" : "other";
+    state.loaded.wishes = true;
+    scheduleRender();
+  };
+  sub(onSnapshot(query(collection(db, "wishes"), where("scope", "==", "together")), snap => {
+    wishParts.together = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    state.loaded.wishes = true;
+    state.wishError = null;
+    mergeWishes();
+  }, wishErr));
+  sub(onSnapshot(query(collection(db, "wishes"), where("byUid", "==", me)), snap => {
+    wishParts.mine = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    mergeWishes();
+  }, wishErr));
 
   sub(onSnapshot(query(collection(db, "calls"), orderBy("createdAt", "desc"), limit(30)), snap => {
     state.calls = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
