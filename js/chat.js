@@ -4,7 +4,7 @@ import {
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, viewImage, avatarHtml, presenceDot,
   statusText, isTyping, toDate, fmtTime, dayLabel, sameDay, fmtDuration, cld, videoPoster, audioUrl,
-  prepareImage, upload, friendlyError, partnerName, realNameOf, spinner, audioCtx, ping, notifText, actions, views, $, $$
+  prepareImage, upload, friendlyError, partnerName, realNameOf, spinner, audioCtx, ping, notifText, actions, views, hooks, $, $$
 } from "./core.js";
 import { typingPing, typingStop, systemNotify, pushPartner, notifyPartner } from "./notify.js";
 import { LIMITS } from "./config.js";
@@ -127,6 +127,8 @@ export function mountChat() {
   els.list.addEventListener("click", e => {
     if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); return; }
     if (handleLinkClick(e)) return;
+    const memQuote = e.target.closest("[data-open-mem]");
+    if (memQuote) { actions.openMemoryFromChat?.(memQuote.dataset.openMem); return; }
     const quote = e.target.closest("[data-jump]");
     if (quote) { jumpTo(quote.dataset.jump); return; }
     const toMem = e.target.closest("[data-to-mem]");
@@ -994,6 +996,13 @@ function previewOf(m) {
 
 function quoteHtml(r) {
   if (!r) return "";
+  if (r.type === "memory") {
+    // the picture stays blurred here: Memories are behind the PIN
+    return `<button type="button" class="quote quote-mem" data-open-mem="${esc(r.id)}">
+        ${r.thumb ? `<i class="qm-thumb"><img src="${esc(r.thumb)}" alt="" loading="lazy" />${ICONS.lock}</i>` : ""}
+        <span class="qm-body"><b>🔐 Memory</b><span>${esc(r.text || "A memory")}</span></span>
+      </button>`;
+  }
   return `<button type="button" class="quote" data-jump="${esc(r.id)}">
       <b>${esc(r.from === uid() ? "You" : realNameOf(r.from))}</b><span>${esc(r.text || "Message")}</span>
     </button>`;
@@ -1007,6 +1016,17 @@ function setReply(id) {
   $("#rb-text").textContent = replyTo.text;
   els.replyBar.hidden = false;
   if (els.composer.dataset.mode === "text") els.input.focus();
+}
+
+// "Reply" on a memory: opens the chat with that memory quoted above the message box
+export function replyToMemory(mem, { title, thumb }) {
+  hooks.go("chat");
+  if (!els) return;
+  replyTo = { id: mem.id, type: "memory", from: mem.byUid || null, text: title, thumb: thumb || null };
+  $("#rb-name").textContent = "Replying to a memory 🔐";
+  $("#rb-text").textContent = title;
+  els.replyBar.hidden = false;
+  setTimeout(() => els?.input.focus(), 300);
 }
 
 function clearReply() {

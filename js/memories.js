@@ -8,6 +8,9 @@ import {
 } from "./core.js";
 import { notifyPartner } from "./notify.js";
 import { carouselHtml, wireCarousel } from "./carousel.js";
+import { replyToMemory } from "./chat.js";
+
+let openAfterUnlock = null; // memory to open once the PIN is entered (tapped from a chat reply)
 import { askMemoriesPin, lockMemories } from "./lock.js";
 import { LIMITS } from "./config.js";
 
@@ -264,9 +267,16 @@ function openMemory(id, start = 0) {
       <button class="btn btn-ghost" data-close>Close</button>
       <button class="btn btn-primary" data-dl>${ICONS.download} Download</button>
     </div>
+    <button class="btn btn-ghost btn-block mem-reply" data-reply>${ICONS.reply} Reply in chat</button>
     ${mine ? `<div class="detail-links"><button class="edit-link" data-edit>${ICONS.pencil} Edit</button><button class="del-link" data-del>Delete this memory</button></div>` : ""}`, { cls: "wide" });
   wireCarousel($(".carousel", m), i => { at = i; }, at);
   $("[data-edit]", m)?.addEventListener("click", () => { m.close(); addMemoryModal(x); });
+  $("[data-reply]", m).addEventListener("click", () => {
+    const cover = items.find(it => it.kind === "image") || items[0];
+    const thumb = cover && thumbOf(cover, "c_fill,w_120,h_120,e_blur:600");
+    m.close();
+    replyToMemory(x, { title: memoryTitle(x), thumb });
+  });
   // downloads the photo / video on screen
   $("[data-dl]", m).addEventListener("click", async e => {
     const b = e.currentTarget;
@@ -291,9 +301,15 @@ views.memories = {
       const id = car.dataset.car;
       wireCarousel(car, i => cardIdx.set(id, i), cardIdx.get(id) || 0);
     });
+    if (state.memUnlocked && openAfterUnlock && state.loaded.memories) {
+      const id = openAfterUnlock;
+      openAfterUnlock = null;
+      if (state.memories.some(x => x.id === id)) setTimeout(() => openMemory(id), 150);
+      else toast("That memory was deleted.");
+    }
   },
   enter() { if (!state.memUnlocked) askMemoriesPin(); },
-  leave() { lockMemories(); }        // locks again every time you leave Memories
+  leave() { lockMemories(); openAfterUnlock = null; }        // locks again every time you leave Memories
 };
 
 Object.assign(actions, {
@@ -301,5 +317,10 @@ Object.assign(actions, {
     if (state.view !== "memories" || !state.memUnlocked) { hooks.go("memories"); return; }
     addMemoryModal();
   },
-  openMemory: d => openMemory(d.id, Number(d.i) || 0)
+  openMemory: d => openMemory(d.id, Number(d.i) || 0),
+  // tapping a memory quoted in the chat: go to Memories (PIN first), then open it
+  openMemoryFromChat: id => {
+    openAfterUnlock = id;
+    hooks.go("memories");
+  }
 });
