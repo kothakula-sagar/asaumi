@@ -26,6 +26,7 @@ import { onLocalNotificationTap } from "./native.js";
 import { scheduleMealCheck, sinceKey } from "./meals.js";
 import { maybeShowStoryMessage } from "./relationship.js";
 import { initShare, applyShareIfReady } from "./share.js";
+import { autoCheckUpdate } from "./updates.js";
 
 initShare(); // "Share to Asaumi" from other apps
 
@@ -110,6 +111,7 @@ hooks.onUnlock = () => {
   maybeShowSurprise();
   setTimeout(() => maybeShowStoryMessage(), 600); // milestone / daily "together" message, once
   scheduleMealCheck(1500); // after Home, location and weather have loaded
+  setTimeout(autoCheckUpdate, 4000); // "a new version is ready" (Android app only)
 };
 
 /* ------------------------------------------------------------------ Android app integration */

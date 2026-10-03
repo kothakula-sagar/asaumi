@@ -30,6 +30,12 @@ fs.writeFileSync(nativeJs, fs.readFileSync(nativeJs, "utf8")
   .replace("/*@PUSH*/false", hasFirebase ? "true" : "false")
   .replace("/*@PUSHKEY*/null", pushKey ? JSON.stringify(pushKey) : "null"));
 
+// "App updates" in More: which GitHub repository publishes the APK (set automatically inside GitHub Actions)
+const repo = process.env.GITHUB_REPOSITORY || "";
+const updatesJs = path.join(out, "js", "updates.js");
+fs.writeFileSync(updatesJs, fs.readFileSync(updatesJs, "utf8").replace('/*@REPO*/""', JSON.stringify(repo)));
+
 console.log(`Web files copied to www/`);
+console.log(`  in-app updates from:   ${repo || "OFF (only inside GitHub Actions)"}`);
 console.log(`  receive notifications: ${hasFirebase ? "ON" : "OFF (google-services.json missing)"}`);
 console.log(`  send notifications:    ${pushKey ? "ON" : "OFF (GitHub secret FCM_SERVICE_ACCOUNT missing)"}`);

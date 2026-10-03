@@ -105,7 +105,18 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
   }
   console.log("Share receiver installed.");
 
-  // ---- 5) Firebase Android config (enables push notifications) ----
+  // ---- 7) Version = GitHub build number, so the app can tell when a newer build exists ----
+  const run = Number(process.env.GITHUB_RUN_NUMBER) || 0;
+  if (run) {
+    const gradle = path.join(appDir, "build.gradle");
+    const g = fs.readFileSync(gradle, "utf8")
+      .replace(/versionCode\s+\d+/, `versionCode ${run}`)
+      .replace(/versionName\s+"[^"]*"/, `versionName "1.${run}"`);
+    fs.writeFileSync(gradle, g);
+    console.log(`Version 1.${run} (build ${run}).`);
+  }
+
+  // ---- 8) Firebase Android config (enables push notifications) ----
   const gs = path.join(root, "google-services.json");
   if (fs.existsSync(gs)) {
     const cfg = JSON.parse(fs.readFileSync(gs, "utf8"));

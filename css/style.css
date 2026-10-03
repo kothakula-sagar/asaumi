@@ -886,6 +886,9 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .quote-mem .qm-body { display: grid; min-width: 0; max-width: none; opacity: 1; white-space: normal; }
 .quote-mem .qm-body span { max-width: 200px; }
 .mem-reply { margin-top: 10px; }
+/* More → App updates */
+.update-new { color: #b6ffd8; font-weight: 800; }
+.update-steps { margin: 4px 0 12px; padding-left: 20px; display: grid; gap: 6px; line-height: 1.4; }
 .msg-row.flash .bubble { animation: flashMsg 1.4s ease; }
 @keyframes flashMsg { 0%, 45% { box-shadow: 0 0 0 3px rgba(125, 211, 252, .95), 0 0 24px rgba(125, 211, 252, .6); } }
 

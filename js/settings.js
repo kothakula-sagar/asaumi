@@ -10,6 +10,7 @@ import { LIMITS } from "./config.js";
 import { birthdaySettingsCard } from "./birthday.js";
 import { storySettingsCard } from "./relationship.js";
 import { sharingOn } from "./together.js";
+import { updatesCard } from "./updates.js";
 
 function callHistory() {
   const list = state.calls.filter(c => c.status !== "ringing").slice(0, 8);
@@ -121,6 +122,8 @@ function renderMore() {
         <p>Calls are live only — never recorded or stored.</p>
         ${callHistory()}
       </div>
+
+      ${updatesCard()}
 
       <div class="glass card about">
         <div class="about-heart">${brandIcon()}</div>

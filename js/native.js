@@ -203,6 +203,12 @@ export async function sendPush(tokens, { title = "Asaumi", body, page = "home", 
   }));
 }
 
+// Installed version: { version: "1.57", build: "57" } (build = Android versionCode)
+export async function appInfo() {
+  if (!App) return null;
+  try { return await App.getInfo(); } catch { return null; }
+}
+
 export function buildInfo() {
   return { isNative, canReceive: isNative && PUSH_ENABLED, hasKey: !!PUSH_KEY, httpPlugin: !!Http, pushPlugin: !!Push };
 }
