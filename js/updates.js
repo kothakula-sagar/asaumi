@@ -1,8 +1,10 @@
 // "App updates" in More. Every GitHub build publishes the APK as the release called "latest";
 // the app compares that build number with its own and downloads the new APK in Chrome.
 // Because every build is signed with the same permanent key, it installs over the old app (no uninstall, nothing lost).
-import { esc, ICONS, toast, openModal, scheduleRender, actions, $ } from "./core.js";
-import { isNative, openExternal, appInfo, updateAlertsState } from "./native.js";
+import { esc, ICONS, toast, openModal, scheduleRender, appName, actions, $ } from "./core.js";
+import {
+  isNative, openExternal, appInfo, updateAlertsState, canSelfUpdate, installAllowed, openInstallSettings, downloadAndInstall
+} from "./native.js";
 
 const REPO = /*@REPO*/"";   // "owner/repo", filled in by the GitHub build
 const TAG = "latest";
@@ -55,8 +57,64 @@ export async function autoCheckUpdate() {
   if (updateAvailable()) toast("✨ A new version is ready. More → App updates");
 }
 
-function installUpdate() {
+// New way (this build and later): download inside the app with a progress bar, then Android's installer opens.
+async function installUpdate() {
   if (!latest?.url) return;
+  if (!canSelfUpdate()) { installViaBrowser(); return; }
+  const m = openModal(`
+    <h2>Update ${ICONS.sparkle}</h2>
+    <div class="upd-box"></div>`);
+  const box = $(".upd-box", m);
+
+  const askPermission = () => {
+    box.innerHTML = `
+      <p>Android needs your OK once so ${esc(appName())} can install its own updates.</p>
+      <ol class="update-steps">
+        <li>Tap <b>Open setting</b>.</li>
+        <li>Turn on <b>Allow from this source</b>.</li>
+        <li>Come back and tap <b>Update now</b>.</li>
+      </ol>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-open>Open setting</button>
+        <button class="btn btn-primary" data-go>${ICONS.download} Update now</button>
+      </div>`;
+    $("[data-open]", box).addEventListener("click", openInstallSettings);
+    $("[data-go]", box).addEventListener("click", start);
+  };
+
+  async function start() {
+    if (!(await installAllowed())) { askPermission(); return; }
+    box.innerHTML = `
+      <p>Downloading the new version…</p>
+      <div class="progress"><span style="width:0%"></span></div>
+      <p class="muted small upd-pct">Starting…</p>`;
+    const bar = $(".progress span", box), pct = $(".upd-pct", box);
+    try {
+      await downloadAndInstall(latest.url, (f, bytes) => {
+        if (f != null) bar.style.width = `${Math.round(f * 100)}%`;
+        pct.textContent = f != null ? `${Math.round(f * 100)}% · ${(bytes / 1048576).toFixed(1)} MB` : `${(bytes / 1048576).toFixed(1)} MB`;
+      });
+      box.innerHTML = `
+        <p class="backup-done">✅ Downloaded</p>
+        <p>Android's installer is open. Tap <b>Update</b>. Your chats, memories and login stay as they are.</p>
+        <div class="modal-actions single"><button class="btn btn-primary" data-close>OK</button></div>`;
+    } catch (err) {
+      console.warn("[asaumi] in-app update", err);
+      box.innerHTML = `
+        <p>The download didn't finish${err?.message ? ` (${esc(err.message)})` : ""}. Check your internet and try again.</p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-browser>Use Chrome instead</button>
+          <button class="btn btn-primary" data-retry>Try again</button>
+        </div>`;
+      $("[data-retry]", box).addEventListener("click", start);
+      $("[data-browser]", box).addEventListener("click", () => { m.close(); openExternal(latest.url); });
+    }
+  }
+  start();
+}
+
+// Old way, for builds without the in-app downloader
+function installViaBrowser() {
   const m = openModal(`
     <h2>Update ${ICONS.sparkle}</h2>
     <ol class="update-steps">

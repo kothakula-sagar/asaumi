@@ -262,6 +262,22 @@ export async function shareFile(uri, title) {
   catch (err) { if (!/cancel/i.test(err?.message || "")) console.warn("[asaumi] share", err); return false; }
 }
 
+/* ------------------------------------------------------------------ in-app update (native-android/AppUpdaterPlugin.java) */
+const Updater = plugin("AppUpdater");
+export const canSelfUpdate = () => !!Updater;
+export async function installAllowed() {
+  try { return (await Updater.canInstall()).allowed; } catch { return true; }
+}
+export async function openInstallSettings() {
+  try { await Updater?.openInstallSettings(); } catch { /* ignore */ }
+}
+// Downloads the APK inside the app, then opens Android's "Update" screen. onProgress(fraction|null, bytes)
+export async function downloadAndInstall(url, onProgress) {
+  const h = await Updater.addListener("progress", p => onProgress?.(p.total > 0 ? p.loaded / p.total : null, p.loaded));
+  try { await Updater.downloadAndInstall({ url }); }
+  finally { try { await h?.remove?.(); } catch { /* ignore */ } }
+}
+
 // Installed version: { version: "1.57", build: "57" } (build = Android versionCode)
 export async function appInfo() {
   if (!App) return null;

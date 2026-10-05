@@ -51,7 +51,9 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
     // Birthday surprise notification at exactly 12 AM
     "android.permission.SCHEDULE_EXACT_ALARM",
     "android.permission.USE_EXACT_ALARM",
-    "android.permission.RECEIVE_BOOT_COMPLETED"
+    "android.permission.RECEIVE_BOOT_COMPLETED",
+    // More → App updates: install the downloaded update (Android asks the person once)
+    "android.permission.REQUEST_INSTALL_PACKAGES"
   ];
   const addPerms = perms.filter(p => !m.includes(`"${p}"`)).map(p => `    <uses-permission android:name="${p}" />`);
   const features = [
@@ -91,6 +93,26 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
 `;
     m = m.replace("</activity>", `${filters}        </activity>`);
   }
+  // ---- 5b) FileProvider: hands the downloaded update (app cache) to Android's installer ----
+  fs.mkdirSync(path.join(res, "xml"), { recursive: true });
+  fs.writeFileSync(path.join(res, "xml", "file_paths.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-path name="my_images" path="." />
+    <cache-path name="my_cache_images" path="." />
+    <files-path name="my_files" path="." />
+</paths>
+`);
+  if (!m.includes("androidx.core.content.FileProvider")) {
+    m = m.replace("</application>", `        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="\${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+    </application>`);
+  }
+
   fs.writeFileSync(manifestPath, m);
   console.log("Manifest permissions and share targets installed.");
 
