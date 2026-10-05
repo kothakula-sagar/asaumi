@@ -127,16 +127,19 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
   }
   console.log("Share receiver installed.");
 
-  // ---- 7) Version = GitHub build number, so the app can tell when a newer build exists ----
+  // ---- 7) app/build.gradle: Google sign-in library (chat backup to Google Drive) + version number ----
+  const gradle = path.join(appDir, "build.gradle");
+  let g = fs.readFileSync(gradle, "utf8");
+  if (!g.includes("play-services-auth")) {
+    g = g.replace(/dependencies\s*\{/, m0 => `${m0}\n    implementation "com.google.android.gms:play-services-auth:21.3.0"`);
+  }
+  // Version = GitHub build number, so the app can tell when a newer build exists
   const run = Number(process.env.GITHUB_RUN_NUMBER) || 0;
   if (run) {
-    const gradle = path.join(appDir, "build.gradle");
-    const g = fs.readFileSync(gradle, "utf8")
-      .replace(/versionCode\s+\d+/, `versionCode ${run}`)
-      .replace(/versionName\s+"[^"]*"/, `versionName "1.${run}"`);
-    fs.writeFileSync(gradle, g);
+    g = g.replace(/versionCode\s+\d+/, `versionCode ${run}`).replace(/versionName\s+"[^"]*"/, `versionName "1.${run}"`);
     console.log(`Version 1.${run} (build ${run}).`);
   }
+  fs.writeFileSync(gradle, g);
 
   // ---- 8) Firebase Android config (enables push notifications) ----
   const gs = path.join(root, "google-services.json");

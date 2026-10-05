@@ -936,6 +936,8 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .backup-status { display: grid; gap: 10px; justify-items: center; text-align: center; }
 .backup-status .modal-actions { width: 100%; }
 .backup-done { font-size: 16px; line-height: 1.5; }
+.backup-more { margin-top: 6px; }
+.backup-more summary { cursor: pointer; padding: 8px 4px; font-size: 13.5px; font-weight: 700; color: rgba(255, 255, 255, .78); }
 .backup-status code { font-size: 12.5px; overflow-wrap: anywhere; opacity: .9; }
 
 /* More → App updates */

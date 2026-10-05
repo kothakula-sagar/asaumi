@@ -31,6 +31,7 @@ import { maybeShowStoryMessage } from "./relationship.js";
 import { initShare, applyShareIfReady } from "./share.js";
 import { autoCheckUpdate } from "./updates.js";
 import { loadArchive, saveMessages, forgetMessages, maintainChat } from "./chatstore.js";
+import { autoBackup, offerRestore } from "./backup.js";
 
 initShare(); // "Share to Asaumi" from other apps
 
@@ -117,7 +118,11 @@ hooks.onUnlock = () => {
   setTimeout(() => maybeShowStoryMessage(), 600); // milestone / daily "together" message, once
   scheduleMealCheck(1500); // after Home, location and weather have loaded
   setTimeout(autoCheckUpdate, 4000); // "a new version is ready" (Android app only)
-  setTimeout(maintainChat, 8000);    // save chat on this phone, remove >10-day-old messages from Firebase
+  setTimeout(offerRestore, 2500);    // first login on this phone: "Bring back your old chats?" (Google Drive)
+  setTimeout(async () => {
+    await maintainChat();            // save chat on this phone, remove >10-day-old messages from Firebase
+    autoBackup();                    // daily Google Drive backup (once Drive was connected)
+  }, 8000);
 };
 
 /* ------------------------------------------------------------------ Android app integration */

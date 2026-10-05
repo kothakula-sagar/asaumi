@@ -262,6 +262,15 @@ export async function shareFile(uri, title) {
   catch (err) { if (!/cancel/i.test(err?.message || "")) console.warn("[asaumi] share", err); return false; }
 }
 
+/* ------------------------------------------------------------------ Google Drive sign-in (native-android/DriveAuthPlugin.java) */
+const DriveAuth = plugin("DriveAuth");
+export const driveSupported = () => !!DriveAuth;
+// → access token for Drive ("drive.file": only files Asaumi created). interactive=false never shows a screen.
+export async function driveAuthorize(email, interactive = true) {
+  if (!DriveAuth) throw new Error("UNSUPPORTED");
+  return (await DriveAuth.authorize({ email, interactive })).accessToken;
+}
+
 /* ------------------------------------------------------------------ in-app update (native-android/AppUpdaterPlugin.java) */
 const Updater = plugin("AppUpdater");
 export const canSelfUpdate = () => !!Updater;

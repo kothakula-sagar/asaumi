@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
         // Local plugins must be registered before super.onCreate()
         registerPlugin(ShareReceiverPlugin.class);
         registerPlugin(AppUpdaterPlugin.class);
+        registerPlugin(DriveAuthPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
