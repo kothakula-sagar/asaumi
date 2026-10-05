@@ -238,6 +238,30 @@ export async function sendPush(tokens, { title = "Asaumi", body, page = "home", 
   }));
 }
 
+/* ------------------------------------------------------------------ files (chat backup) */
+const Files = plugin("Filesystem");
+const ShareSheet = plugin("Share");
+
+// Writes a text file the person can find in the Files app (Documents). Returns { uri, folder } or null.
+export async function saveTextFile(name, text) {
+  if (!Files) return null;
+  try {
+    const r = await Files.writeFile({ path: name, data: text, directory: "DOCUMENTS", encoding: "utf8", recursive: true });
+    return { uri: r.uri, folder: "Documents" };
+  } catch (err) {
+    console.warn("[asaumi] save to Documents failed, using app storage", err);
+    const r = await Files.writeFile({ path: name, data: text, directory: "CACHE", encoding: "utf8" });
+    return { uri: r.uri, folder: null };
+  }
+}
+
+// Opens Android's share menu for a file (Google Drive, WhatsApp, Gmail, Files…)
+export async function shareFile(uri, title) {
+  if (!ShareSheet) return false;
+  try { await ShareSheet.share({ title, dialogTitle: title, files: [uri] }); return true; }
+  catch (err) { if (!/cancel/i.test(err?.message || "")) console.warn("[asaumi] share", err); return false; }
+}
+
 // Installed version: { version: "1.57", build: "57" } (build = Android versionCode)
 export async function appInfo() {
   if (!App) return null;

@@ -86,7 +86,7 @@ export function notifyPartner(type, text, extra = {}) {
 }
 
 export const unreadNotifications = () => state.notifications.filter(n => !n.read).length;
-export const unreadMessages = () => state.messages.filter(m => m.to === uid() && !m.readAt).length;
+export const unreadMessages = () => state.messages.filter(m => m.to === uid() && !m.readAt && !m.archived).length;
 
 async function markAllRead() {
   const unread = state.notifications.filter(n => !n.read);

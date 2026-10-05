@@ -2,11 +2,13 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  collection, doc, getDoc, onSnapshot, query, where, orderBy, limit, limitToLast
+  collection, doc, getDoc, onSnapshot, query, where, orderBy, limit, limitToLast, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const KEEP_NOTIFICATIONS = 10; // the bell keeps the latest 10; older ones are deleted from Firebase
 import {
   auth, db, state, views, actions, hooks, scheduleRender, $, $$, esc, ICONS, avatarHtml, presenceDot,
-  isOnline, statusText, toast, friendlyError, confirmDialog, closeAllModals, cld, spinner, whenDate,
+  isOnline, statusText, toast, friendlyError, confirmDialog, closeAllModals, cld, spinner, whenDate, toDate,
   brand, brandIcon, appName, setBrand, applyBrandChrome
 } from "./core.js";
 import {
@@ -28,6 +30,7 @@ import { scheduleMealCheck, sinceKey } from "./meals.js";
 import { maybeShowStoryMessage } from "./relationship.js";
 import { initShare, applyShareIfReady } from "./share.js";
 import { autoCheckUpdate } from "./updates.js";
+import { loadArchive, saveMessages, forgetMessages, maintainChat } from "./chatstore.js";
 
 initShare(); // "Share to Asaumi" from other apps
 
@@ -44,6 +47,7 @@ onAuthStateChanged(auth, async user => {
   if (!user) {
     stopWatchingIncoming();
     resetChat();
+    live = []; archive = []; archiveFor = null; // the saved chat stays on the phone for the next login
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: 60, loaded: {},
       memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null, wishes: [], wishError: null,
@@ -113,6 +117,7 @@ hooks.onUnlock = () => {
   setTimeout(() => maybeShowStoryMessage(), 600); // milestone / daily "together" message, once
   scheduleMealCheck(1500); // after Home, location and weather have loaded
   setTimeout(autoCheckUpdate, 4000); // "a new version is ready" (Android app only)
+  setTimeout(maintainChat, 8000);    // save chat on this phone, remove >10-day-old messages from Firebase
 };
 
 /* ------------------------------------------------------------------ Android app integration */
@@ -208,9 +213,17 @@ function subscribe() {
 
   let firstNotif = true;
   sub(onSnapshot(query(collection(db, "notifications"), where("to", "==", me)), snap => {
-    state.notifications = snap.docs
+    const all = snap.docs
       .map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    // only the latest 10 are kept; older ones are removed from Firebase
+    state.notifications = all.slice(0, KEEP_NOTIFICATIONS);
+    const extra = all.slice(KEEP_NOTIFICATIONS).filter(n => !snap.metadata.hasPendingWrites && n.createdAt);
+    if (extra.length) {
+      const b = writeBatch(db);
+      extra.forEach(n => b.delete(doc(db, "notifications", n.id)));
+      b.commit().catch(err => console.warn("[asaumi] trim notifications", err));
+    }
     if (!firstNotif) {
       snap.docChanges().filter(c => c.type === "added").forEach(c => announceNotification(c.doc.data()));
     }
@@ -264,15 +277,57 @@ function subscribe() {
   sub(() => clearInterval(tick));
 }
 
+/* Chat = messages saved on this phone (older than what Firebase keeps) + the live ones from Firebase.
+   state.messages is the merged list (newest msgLimit), so the chat screen works the same as before. */
 let msgUnsub = null;
+let live = [];          // from Firebase
+let archive = [];       // from this phone (chatstore.js), each has archived: true
+let archiveFor = null;
+
+function mergeMessages() {
+  const liveIds = new Set(live.map(m => m.id));
+  const oldestLive = live.length ? toDate(live[0].createdAt)?.getTime() ?? Infinity : Infinity;
+  const older = archive.filter(m => !liveIds.has(m.id) && m.createdAt.getTime() < oldestLive);
+  state.messages = [...older, ...live].slice(-state.msgLimit);
+}
+
+async function loadLocalChat() {
+  const me = state.user?.uid;
+  if (!me || archiveFor === me) return;
+  archiveFor = me;
+  archive = await loadArchive();
+  if (state.user?.uid !== me) return;
+  mergeMessages();
+  if (archive.length) state.loaded.messages = true; // show the saved chat at once, even offline
+  updateChat();
+  scheduleRender();
+}
+
 function subscribeMessages() {
   msgUnsub?.();
   let first = true;
+  loadLocalChat();
   msgUnsub = onSnapshot(
     query(collection(db, "messages"), orderBy("createdAt", "asc"), limitToLast(state.msgLimit)),
     { includeMetadataChanges: true },
     snap => {
-      state.messages = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }), pending: d.metadata.hasPendingWrites }));
+      live = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }), pending: d.metadata.hasPendingWrites }));
+      // keep a copy on this phone
+      saveMessages(live);
+      if (!snap.metadata.fromCache && live.length) {
+        // a saved message inside the live range that Firebase no longer has was deleted ("Delete for both")
+        const ids = new Set(live.map(m => m.id));
+        const from = toDate(live[0].createdAt)?.getTime() ?? Infinity;
+        const gone = archive.filter(m => !ids.has(m.id) && m.createdAt.getTime() >= from).map(m => m.id);
+        if (gone.length) { archive = archive.filter(m => !gone.includes(m.id)); forgetMessages(gone); }
+      }
+      // newly seen messages join the local list too, so they stay after Firebase removes them
+      // (and edits replace the saved copy)
+      const byId = new Map(archive.map(m => [m.id, m]));
+      live.filter(m => !m.pending && toDate(m.createdAt))
+        .forEach(m => byId.set(m.id, { ...m, createdAt: toDate(m.createdAt), archived: true }));
+      archive = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
+      mergeMessages();
       state.loaded.messages = true;
       if (!first) {
         snap.docChanges()
@@ -288,6 +343,21 @@ function subscribeMessages() {
   );
   state.unsubs.push(() => { msgUnsub?.(); msgUnsub = null; });
 }
+
+// after "Restore chat": read the phone's saved chat again
+actions.reloadLocalChat = async () => {
+  archiveFor = null;
+  await loadLocalChat();
+};
+
+// "Delete from this phone" for an old message that only exists in the phone's saved chat
+actions.forgetLocalMessage = id => {
+  archive = archive.filter(m => m.id !== id);
+  forgetMessages([id]);
+  mergeMessages();
+  updateChat();
+  scheduleRender();
+};
 
 actions.loadEarlier = () => {
   state.msgLimit += 60;

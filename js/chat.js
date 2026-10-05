@@ -479,7 +479,7 @@ function dropPending(lid) {
 
 /* ------------------------------------------------------------------ receipts */
 export function markDelivered() {
-  const mine = state.messages.filter(m => m.to === uid() && !m.deliveredAt && !m.pending && !deliveredAsked.has(m.id));
+  const mine = state.messages.filter(m => m.to === uid() && !m.deliveredAt && !m.pending && !m.archived && !deliveredAsked.has(m.id));
   if (!mine.length) return;
   const b = writeBatch(db);
   mine.forEach(m => { deliveredAsked.add(m.id); b.update(doc(db, "messages", m.id), { deliveredAt: serverTimestamp() }); });
@@ -488,7 +488,7 @@ export function markDelivered() {
 
 export function markRead() {
   if (state.view !== "chat" || document.hidden || state.locked) return;
-  const unread = state.messages.filter(m => m.to === uid() && !m.readAt && !m.pending && !readAsked.has(m.id));
+  const unread = state.messages.filter(m => m.to === uid() && !m.readAt && !m.pending && !m.archived && !readAsked.has(m.id));
   if (!unread.length) return;
   const b = writeBatch(db);
   unread.forEach(m => {
@@ -1154,15 +1154,17 @@ function openMessageMenu(id) {
   const m = state.messages.find(x => x.id === id);
   if (!m) return;
   const mine = m.from === uid();
+  const local = !!m.archived; // older than 10 days: only saved on this phone, no longer in Firebase
   const shown = m.type === "sticker" ? m.media : curSlide(m); // in an album: the photo on screen
   const modal = openModal(`
     <div class="menu-preview">${esc(previewOf(m) || "Message")}</div>
     <div class="msg-menu">
       <button data-m="reply">${ICONS.reply}<span>Reply</span></button>
       ${(m.type === "sticker" || shown?.kind === "image") && shown?.url ? `<button data-m="sticker">${ICONS.sparkle}<span>Save as sticker</span></button>` : ""}
-      ${mine && m.type !== "voice" && m.type !== "sticker" ? `<button data-m="edit">${ICONS.pencil}<span>${m.type === "text" ? "Edit" : m.text ? "Edit caption" : "Add caption"}</span></button>` : ""}
+      ${mine && !local && m.type !== "voice" && m.type !== "sticker" ? `<button data-m="edit">${ICONS.pencil}<span>${m.type === "text" ? "Edit" : m.text ? "Edit caption" : "Add caption"}</span></button>` : ""}
       ${m.text ? `<button data-m="copy">${ICONS.copy}<span>Copy text</span></button>` : ""}
-      ${mine ? `<button data-m="delete" class="danger">${ICONS.trash}<span>Delete for both</span></button>` : ""}
+      ${local ? `<button data-m="forget" class="danger">${ICONS.trash}<span>Delete from this phone</span></button>`
+        : mine ? `<button data-m="delete" class="danger">${ICONS.trash}<span>Delete for both</span></button>` : ""}
     </div>
     <button class="btn btn-ghost btn-block" data-close>Cancel</button>`, { cls: "action-sheet" });
   modal.querySelector(".msg-menu").addEventListener("click", async e => {
@@ -1176,6 +1178,9 @@ function openMessageMenu(id) {
     else if (b.dataset.m === "delete") {
       const ok = await confirmDialog({ icon: "trash", title: "Delete message?", text: "It will be removed for both of you.", ok: "Delete", danger: true });
       if (ok) deleteDoc(doc(db, "messages", id)).catch(err => toast(friendlyError(err, "Couldn't delete the message.")));
+    } else if (b.dataset.m === "forget") {
+      const ok = await confirmDialog({ icon: "trash", title: "Delete from this phone?", text: "This old message is only saved on this phone. It will be removed here; the other phone keeps its own copy.", ok: "Delete", danger: true });
+      if (ok) actions.forgetLocalMessage?.(id);
     }
   });
 }

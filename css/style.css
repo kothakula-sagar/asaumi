@@ -932,6 +932,12 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .wish-detail-title.done { text-decoration: line-through; opacity: .75; }
 .wish-open-link { margin: 4px 0 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* More → Chat backup */
+.backup-status { display: grid; gap: 10px; justify-items: center; text-align: center; }
+.backup-status .modal-actions { width: 100%; }
+.backup-done { font-size: 16px; line-height: 1.5; }
+.backup-status code { font-size: 12.5px; overflow-wrap: anywhere; opacity: .9; }
+
 /* More → App updates */
 .update-new { color: #b6ffd8; font-weight: 800; }
 .update-steps { margin: 4px 0 12px; padding-left: 20px; display: grid; gap: 6px; line-height: 1.4; }
