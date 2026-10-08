@@ -53,7 +53,9 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
     "android.permission.USE_EXACT_ALARM",
     "android.permission.RECEIVE_BOOT_COMPLETED",
     // More → App updates: install the downloaded update (Android asks the person once)
-    "android.permission.REQUEST_INSTALL_PACKAGES"
+    "android.permission.REQUEST_INSTALL_PACKAGES",
+    // App lock with fingerprint / phone screen lock
+    "android.permission.USE_BIOMETRIC"
   ];
   const addPerms = perms.filter(p => !m.includes(`"${p}"`)).map(p => `    <uses-permission android:name="${p}" />`);
   const features = [
@@ -127,11 +129,14 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
   }
   console.log("Share receiver installed.");
 
-  // ---- 7) app/build.gradle: Google sign-in library (chat backup to Google Drive) + version number ----
+  // ---- 7) app/build.gradle: Google sign-in library (chat backup to Google Drive), fingerprint library + version number ----
   const gradle = path.join(appDir, "build.gradle");
   let g = fs.readFileSync(gradle, "utf8");
   if (!g.includes("play-services-auth")) {
     g = g.replace(/dependencies\s*\{/, m0 => `${m0}\n    implementation "com.google.android.gms:play-services-auth:21.3.0"`);
+  }
+  if (!g.includes("androidx.biometric")) {
+    g = g.replace(/dependencies\s*\{/, m0 => `${m0}\n    implementation "androidx.biometric:biometric:1.1.0"`);
   }
   // Version = GitHub build number, so the app can tell when a newer build exists
   const run = Number(process.env.GITHUB_RUN_NUMBER) || 0;

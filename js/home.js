@@ -43,7 +43,9 @@ function renderHome() {
   const last = state.messages.at(-1);
   const unread = unreadMessages();
   const typing = p && isTyping(p.uid);
-  const mem = state.memories[0];
+  // the full memory list is only loaded after Memories is unlocked; until then Home uses the newest one + a count
+  const mem = state.loaded.memories ? state.memories[0] : state.memLatest;
+  const memCount = state.loaded.memories ? state.memories.length : state.memCount;
   const mv = state.movements[0];
   const mvDate = mv && whenDate(mv.when);
 
@@ -91,7 +93,7 @@ function renderHome() {
         <header class="hcard-head">
           <span class="hcard-ico">🔐</span>
           <h3>Memories</h3>
-          <span class="hcard-count">${state.memories.length} ${state.memories.length === 1 ? "memory" : "memories"}</span>
+          ${memCount == null ? "" : `<span class="hcard-count">${memCount} ${memCount === 1 ? "memory" : "memories"}</span>`}
         </header>
         <div class="hcard-row">
           <span class="mem-thumb">${mem ? `<img src="${esc(cld(mem.url, "f_auto,q_auto,c_fill,w_160,h_160,e_blur:600"))}" alt="" />` : ""}<i>${ICONS.lock}</i></span>

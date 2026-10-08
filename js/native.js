@@ -271,6 +271,26 @@ export async function driveAuthorize(email, interactive = true) {
   return (await DriveAuth.authorize({ email, interactive })).accessToken;
 }
 
+/* ------------------------------------------------------------------ fingerprint / phone screen lock (native-android/BiometricLockPlugin.java) */
+const Bio = plugin("BiometricLock");
+// → { available, code }  (code 11 = no fingerprint or screen lock set up on the phone)
+export async function biometricAvailable() {
+  if (!Bio) return { available: false, code: -1 };
+  try { const r = await Bio.isAvailable(); return { available: !!r.available, code: r.code }; }
+  catch { return { available: false, code: -1 }; } // older APK without the plugin
+}
+// Shows Android's fingerprint / screen-lock prompt. Never throws: → { ok, cancelled, lockedOut }
+export async function biometricUnlock({ title, subtitle }) {
+  if (!Bio) return { ok: false, cancelled: false, lockedOut: false };
+  try {
+    await Bio.authenticate({ title, subtitle });
+    return { ok: true };
+  } catch (err) {
+    const code = String(err?.code ?? "");
+    return { ok: false, code, cancelled: ["5", "10", "13"].includes(code), lockedOut: ["7", "9"].includes(code) };
+  }
+}
+
 /* ------------------------------------------------------------------ in-app update (native-android/AppUpdaterPlugin.java) */
 const Updater = plugin("AppUpdater");
 export const canSelfUpdate = () => !!Updater;

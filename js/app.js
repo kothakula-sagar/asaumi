@@ -2,10 +2,12 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  collection, doc, getDoc, onSnapshot, query, where, orderBy, limit, limitToLast, writeBatch
+  collection, doc, getDoc, getDocs, getCountFromServer, onSnapshot, query, where, orderBy, limit, limitToLast,
+  writeBatch, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const KEEP_NOTIFICATIONS = 10; // the bell keeps the latest 10; older ones are deleted from Firebase
+const LIVE_MESSAGES = 60;      // newest messages kept live from Firebase; older ones come from this phone
 import {
   auth, db, state, views, actions, hooks, scheduleRender, $, $$, esc, ICONS, avatarHtml, presenceDot,
   isOnline, statusText, toast, friendlyError, confirmDialog, closeAllModals, cld, spinner, whenDate, toDate,
@@ -48,10 +50,10 @@ onAuthStateChanged(auth, async user => {
   if (!user) {
     stopWatchingIncoming();
     resetChat();
-    live = []; archive = []; archiveFor = null; // the saved chat stays on the phone for the next login
+    live = []; archive = []; archiveFor = null; olderDone = false; // the saved chat stays on the phone for the next login
     Object.assign(state, {
-      me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: 60, loaded: {},
-      memories: [], movements: [], calls: [], notifications: [], background: null, pinHash: null, wishes: [], wishError: null,
+      me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: LIVE_MESSAGES, loaded: {},
+      memories: [], memLatest: null, memCount: null, movements: [], calls: [], notifications: [], background: null, pinHash: null, wishes: [], wishError: null,
       locations: {}, myPos: null, birthdays: null, stickers: [], meals: {}, relationship: undefined,
       view: "home", locked: false, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pin: null, pinReset: false
     });
@@ -173,9 +175,12 @@ function subscribe() {
 
   subscribeMessages();
 
-  sub(onSnapshot(query(collection(db, "memories"), orderBy("createdAt", "desc")), snap => {
-    state.memories = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
-    state.loaded.memories = true;
+  // Home needs only the newest memory and a count (1 read + 1 count read). The full list loads after
+  // Memories is unlocked (actions.startMemories), so opening the app doesn't read every memory.
+  sub(onSnapshot(query(collection(db, "memories"), orderBy("createdAt", "desc"), limit(1)), snap => {
+    const d = snap.docs[0];
+    state.memLatest = d ? { id: d.id, ...d.data({ serverTimestamps: "estimate" }) } : null;
+    if (!snap.metadata.fromCache && !snap.metadata.hasPendingWrites && !state.loaded.memories) refreshMemCount();
     scheduleRender();
   }, onErr));
 
@@ -282,6 +287,27 @@ function subscribe() {
   sub(() => clearInterval(tick));
 }
 
+/* ------------------------------------------------------------------ memories (loaded only once unlocked) */
+let memUnsub = null;
+
+function refreshMemCount() {
+  getCountFromServer(collection(db, "memories"))
+    .then(s => { if (!state.loaded.memories) { state.memCount = s.data().count; scheduleRender(); } })
+    .catch(err => console.warn("[asaumi] memory count", err));
+}
+
+// Called by memories.js when Memories is unlocked; keeps listening until sign-out (only changes cost reads)
+actions.startMemories = () => {
+  if (memUnsub || !state.user) return;
+  memUnsub = onSnapshot(query(collection(db, "memories"), orderBy("createdAt", "desc")), snap => {
+    state.memories = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    state.memCount = state.memories.length;
+    state.loaded.memories = true;
+    scheduleRender();
+  }, onErr);
+  state.unsubs.push(() => { memUnsub?.(); memUnsub = null; });
+};
+
 /* Chat = messages saved on this phone (older than what Firebase keeps) + the live ones from Firebase.
    state.messages is the merged list (newest msgLimit), so the chat screen works the same as before. */
 let msgUnsub = null;
@@ -313,7 +339,7 @@ function subscribeMessages() {
   let first = true;
   loadLocalChat();
   msgUnsub = onSnapshot(
-    query(collection(db, "messages"), orderBy("createdAt", "asc"), limitToLast(state.msgLimit)),
+    query(collection(db, "messages"), orderBy("createdAt", "asc"), limitToLast(LIVE_MESSAGES)),
     { includeMetadataChanges: true },
     snap => {
       live = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }), pending: d.metadata.hasPendingWrites }));
@@ -364,9 +390,45 @@ actions.forgetLocalMessage = id => {
   scheduleRender();
 };
 
-actions.loadEarlier = () => {
+// After "Edit" / "Delete for both" on an older message that is outside the live 60
+actions.patchLocalMessage = (id, changes) => {
+  const m = archive.find(x => x.id === id);
+  if (!m) return;
+  Object.assign(m, changes);
+  saveMessages([m]);
+  mergeMessages();
+  updateChat();
+  scheduleRender();
+};
+
+/* "Load earlier messages": shown from the chat saved on this phone (no Firebase reads).
+   Only if the phone doesn't have them (e.g. a new browser) are the missing ones read from Firebase, once. */
+let olderDone = false; // Firebase has nothing older than what this phone shows
+
+async function fetchOlder(n) {
+  const oldest = toDate(state.messages[0]?.createdAt);
+  if (!oldest) { olderDone = true; return; }
+  const snap = await getDocs(query(collection(db, "messages"),
+    where("createdAt", "<", Timestamp.fromDate(oldest)), orderBy("createdAt", "desc"), limit(n)));
+  if (snap.size < n) olderDone = true;
+  const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (!list.length) return;
+  await saveMessages(list);
+  const byId = new Map(archive.map(m => [m.id, m]));
+  list.forEach(m => byId.set(m.id, { ...m, createdAt: toDate(m.createdAt), archived: true }));
+  archive = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
+  mergeMessages();
+}
+
+actions.loadEarlier = async () => {
   state.msgLimit += 60;
-  subscribeMessages();
+  mergeMessages();
+  if (state.messages.length < state.msgLimit && !olderDone) {
+    try { await fetchOlder(state.msgLimit - state.messages.length); }
+    catch (err) { console.warn("[asaumi] older messages", err); }
+  }
+  updateChat();
+  scheduleRender();
 };
 
 /* ------------------------------------------------------------------ login */

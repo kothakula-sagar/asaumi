@@ -33,6 +33,7 @@ function renderMemories() {
         <button class="btn btn-primary" data-action="unlockMemories">${ICONS.unlock} Unlock with PIN</button>
       </div>`;
   }
+  actions.startMemories?.(); // the full list is read from Firebase only from here on
   const list = state.memories;
   return `
     <section class="page-head">

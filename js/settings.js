@@ -12,6 +12,7 @@ import { storySettingsCard } from "./relationship.js";
 import { sharingOn } from "./together.js";
 import { updatesCard } from "./updates.js";
 import { backupCard } from "./backup.js";
+import { biometricSettingsRow } from "./lock.js";
 
 function callHistory() {
   const list = state.calls.filter(c => c.status !== "ringing").slice(0, 8);
@@ -109,6 +110,7 @@ function renderMore() {
       <div class="glass card">
         <h3>Privacy</h3>
         <button class="set-row" data-action="resetPin"><span class="set-ico">${ICONS.lock}</span><span class="set-main"><b>Change app PIN</b><small>Asked when ${esc(appName())} opens and for Memories · verified with your login password</small></span><span class="chev">›</span></button>
+        ${biometricSettingsRow()}
         <button class="set-row" data-action="lockNow"><span class="set-ico">${ICONS.lock}</span><span class="set-main"><b>Lock now</b><small>Lock ${esc(appName())} until the PIN is entered</small></span><span class="chev">›</span></button>
         <div class="set-row">
           <span class="set-ico">${ICONS.bell}</span>

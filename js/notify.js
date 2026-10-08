@@ -23,7 +23,8 @@ export function setOnline(on) {
 export function startPresence() {
   clearInterval(heartbeat);
   setOnline(!document.hidden);
-  heartbeat = setInterval(() => { if (!document.hidden) setOnline(true); }, 45000);
+  // every 2 minutes: each heartbeat is one write here and one read on the other phone
+  heartbeat = setInterval(() => { if (!document.hidden) setOnline(true); }, 120000);
 }
 
 export async function stopPresence() {
@@ -39,7 +40,7 @@ let typingOn = false, typingTimer, lastTypingWrite = 0;
 
 export function typingPing() {
   const now = Date.now();
-  if (!typingOn || now - lastTypingWrite > 3000) {
+  if (!typingOn || now - lastTypingWrite > 5000) { // the other phone shows "typing" for 8 s after each update
     typingOn = true;
     lastTypingWrite = now;
     writePresence({ typing: true, typingAt: serverTimestamp() });

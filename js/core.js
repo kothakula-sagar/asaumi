@@ -134,7 +134,7 @@ export const nowLocalInput = () => { const d = new Date(); d.setMinutes(d.getMin
 export function isOnline(id) {
   const p = state.presence[id];
   const seen = toDate(p?.lastSeen);
-  return !!(p?.state === "online" && seen && Date.now() - seen.getTime() < 2.5 * 60 * 1000);
+  return !!(p?.state === "online" && seen && Date.now() - seen.getTime() < 4 * 60 * 1000); // heartbeat every 2 min
 }
 
 export function isTyping(id) {
@@ -195,7 +195,8 @@ export const ICONS = {
   camera: S('<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/>'),
   reply: S('<path d="M10 8 5 12.5 10 17"/><path d="M5.5 12.5H14a5 5 0 0 1 5 5V19"/>', 'stroke-width="2.4"'),
   copy: S('<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/>'),
-  retry: S('<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>')
+  retry: S('<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>'),
+  fingerprint: S('<path d="M12 11.5v2.5a9 9 0 0 1-1.4 4.8"/><path d="M8.6 13.2a3.4 3.4 0 0 1 6.8.3v.8a13 13 0 0 1-1 4.6"/><path d="M5.6 15.8A7 7 0 0 1 5 13a7 7 0 0 1 14 0v1.2a16 16 0 0 1-.6 3.6"/><path d="M6.5 6.4A9.5 9.5 0 0 1 17.6 6"/>', 'stroke-width="2"')
 };
 
 /* ------------------------------------------------------------------ brand (name, icon, notification wording) */

@@ -1,5 +1,5 @@
 import {
-  doc, collection, addDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch
+  doc, collection, addDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch, getDocs, query, where, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, viewImage, avatarHtml, presenceDot,
@@ -11,6 +11,7 @@ import { LIMITS } from "./config.js";
 import { stickerPanes, bindStickerPanel, renderOurStickers, saveAsSticker } from "./stickers.js";
 import { linkPreviewHtml, handleLinkClick } from "./linkpreview.js";
 import { carouselHtml, wireCarousel } from "./carousel.js";
+import { KEEP_DAYS } from "./chatstore.js";
 export { renderOurStickers };
 
 const EMOJIS = "❤️ 😘 🥰 😍 😊 😂 🤣 😅 😇 🙈 😴 🥺 😢 😭 😤 😡 🤗 🤔 😌 😋 😎 🤍 💜 💙 💕 💖 💞 💫 ✨ 🌙 ⭐ 🌸 🌹 🌈 ☕ 🍫 🍕 🎶 🎉 🎂 🙏 👍 👌 🤞 👏 🫶 💪 🔥 💯".split(" ");
@@ -245,7 +246,9 @@ function itemHtml(it, showDate) {
 }
 
 /* ------------------------------------------------------------------ chat photo → Memories */
-const inMemories = url => !!url && state.memories.some(m => m.url === url || m.items?.some(x => x.url === url));
+// Memories are loaded only after they're unlocked; until then photos saved from this phone are remembered here
+const savedToMemories = new Set();
+const inMemories = url => !!url && (savedToMemories.has(url) || state.memories.some(m => m.url === url || m.items?.some(x => x.url === url)));
 
 // In an album the button follows the slide on screen (hidden on videos: Memories are photos)
 function toMemoryButton(id, slide) {
@@ -286,6 +289,10 @@ function uploadToMemories(id) {
     save.disabled = true;
     save.innerHTML = spinner("sm dark");
     try {
+      if (!state.loaded.memories) { // the list isn't loaded: check this one photo (1 read)
+        const dup = await getDocs(query(collection(db, "memories"), where("url", "==", photo.url), limit(1)));
+        if (!dup.empty) { savedToMemories.add(photo.url); m.close(); toast("Already in Memories 🔐"); updateChat(); return; }
+      }
       // same photo, no re-upload; "uploaded by" is whoever tapped the button
       const ref = await addDoc(collection(db, "memories"), {
         url: photo.url, publicId: photo.publicId || null,
@@ -295,8 +302,10 @@ function uploadToMemories(id) {
         byUid: uid(), byName: myName(), createdAt: serverTimestamp(), fromMessage: id
       });
       notifyPartner("memory", notifText("memory"), { refId: ref.id });
+      savedToMemories.add(photo.url);
       m.close();
       toast("Uploaded to Memories 🔐");
+      updateChat();
     } catch (e) {
       err.textContent = friendlyError(e, "Couldn't upload. Try again.");
       save.disabled = false;
@@ -1140,6 +1149,7 @@ function editMessage(m) {
     save.disabled = true;
     try {
       await updateDoc(doc(db, "messages", m.id), { text, editedAt: serverTimestamp() });
+      if (m.archived) actions.patchLocalMessage?.(m.id, { text, editedAt: new Date() });
       modal.close();
     } catch (e) {
       err.textContent = friendlyError(e, "Couldn't edit the message.");
@@ -1154,7 +1164,9 @@ function openMessageMenu(id) {
   const m = state.messages.find(x => x.id === id);
   if (!m) return;
   const mine = m.from === uid();
-  const local = !!m.archived; // older than 10 days: only saved on this phone, no longer in Firebase
+  // older than 10 days: only saved on this phone, no longer in Firebase. Newer ones shown from the phone's
+  // copy ("Load earlier messages") are still in Firebase, so they can be edited and deleted for both.
+  const local = !!m.archived && Date.now() - (toDate(m.createdAt)?.getTime() || 0) > KEEP_DAYS * 864e5;
   const shown = m.type === "sticker" ? m.media : curSlide(m); // in an album: the photo on screen
   const modal = openModal(`
     <div class="menu-preview">${esc(previewOf(m) || "Message")}</div>
@@ -1177,7 +1189,11 @@ function openMessageMenu(id) {
     else if (b.dataset.m === "copy") copyText(m.text);
     else if (b.dataset.m === "delete") {
       const ok = await confirmDialog({ icon: "trash", title: "Delete message?", text: "It will be removed for both of you.", ok: "Delete", danger: true });
-      if (ok) deleteDoc(doc(db, "messages", id)).catch(err => toast(friendlyError(err, "Couldn't delete the message.")));
+      if (ok) {
+        deleteDoc(doc(db, "messages", id))
+          .then(() => { if (m.archived) actions.forgetLocalMessage?.(id); }) // outside the live 60: remove the phone's copy too
+          .catch(err => toast(friendlyError(err, "Couldn't delete the message.")));
+      }
     } else if (b.dataset.m === "forget") {
       const ok = await confirmDialog({ icon: "trash", title: "Delete from this phone?", text: "This old message is only saved on this phone. It will be removed here; the other phone keeps its own copy.", ok: "Delete", danger: true });
       if (ok) actions.forgetLocalMessage?.(id);
@@ -1204,6 +1220,7 @@ views.chat = {
 
 export function resetChat() {
   pending.splice(0).forEach(p => p.abort?.abort());
+  savedToMemories.clear();
   deliveredAsked.clear();
   readAsked.clear();
   player.audio.pause();
