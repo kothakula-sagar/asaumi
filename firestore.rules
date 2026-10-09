@@ -124,7 +124,7 @@ service cloud.firestore {
 
     // 🎮 Our Games (Ludo, Snake & Ladder, Tic-Tac-Toe). Scores are in settings/games.
     // Every update must raise moveNo by exactly 1, so two phones can never both move from the same turn.
-    // Emoji reactions only change "react" and don't count as a move.
+    // Emoji reactions ("react") and stop requests ("stopReq") don't count as a move.
     match /games/{id} {
       allow read: if isMember();
       allow create: if isMember()
@@ -138,7 +138,7 @@ service cloud.firestore {
         && incoming().players == resource.data.players
         && incoming().inviter == resource.data.inviter
         && incoming().type == resource.data.type
-        && (incoming().moveNo == resource.data.moveNo + 1 || onlyChanges(['react']));
+        && (incoming().moveNo == resource.data.moveNo + 1 || onlyChanges(['react', 'stopReq']));
       allow delete: if isMember() && me() in resource.data.players;
     }
 

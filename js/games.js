@@ -10,7 +10,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, esc, ICONS, toast, openModal, confirmDialog, avatarHtml, myName, partnerName, shortWhen,
-  scheduleRender, actions, views, hooks, $, $$
+  scheduleRender, tone, actions, views, hooks, $, $$
 } from "./core.js";
 import { notifyPartner } from "./notify.js";
 import ludo from "./game-ludo.js";
@@ -47,6 +47,15 @@ const prompted = new Set();    // invites already shown as a popup
 const closingByMe = new Set(); // games this phone closed (no "they ended it" message)
 let inviteModal = null;
 let play = null;               // the live game screen
+const stopSeen = new Set();    // stop requests already shown / answered
+
+// Turn timer: if the player whose turn it is doesn't play within 6 s, the chance passes to the other.
+// Their own phone passes it at 6 s; if their app is closed, the other phone does it after 6 s + a little
+// grace for slow internet. After MAX_IDLE skipped turns in a row the game pauses (no endless ping-pong).
+const TURN_SECONDS = 6;
+const GRACE_MS = 3000;
+const MAX_IDLE = 4;
+const isLive = g => !!g && (g.status === "active" || g.status === "invited");
 
 /* ------------------------------------------------------------------ helpers */
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -119,6 +128,16 @@ function onGame(game) {
       closeGame(game, "declined");
     }
     if (prev?.id === game.id && prev.status === "invited" && game.status === "active" && game.inviter === me) onAccepted(game);
+    // ⏹ stop requests: asked by the other person → popup; my request declined → tell me once
+    const sr = game.stopReq;
+    if (sr && game.status === "active") {
+      const key = `${game.id}:${sr.at}`;
+      if (sr.by !== me && !sr.answer && !stopSeen.has(key) && !state.locked) { stopSeen.add(key); showStopRequest(game); }
+      if (sr.by === me && sr.answer === "no" && !stopSeen.has(`${key}:no`)) {
+        stopSeen.add(`${key}:no`);
+        toast(`${pName()} wants to keep playing 😜`);
+      }
+    }
   }
   if (inviteModal && (game?.id !== inviteModal.gameId || game?.status !== "invited")) { inviteModal.close(); inviteModal = null; }
   receive(game);
@@ -178,13 +197,13 @@ async function inviteFlow(type) {
   const mod = GAMES[type];
   if (!mod) return;
   if (!state.partner) { toast("Your person hasn't signed in yet."); return; }
+  // only one live game at a time: finish it, or stop it (the other person has to agree)
   const g = G.open;
-  if (g && g.status !== "done") {
-    const ok = await confirmDialog({
-      icon: "🎮", title: "Start a new game?",
-      text: `Your ${GAMES[g.type]?.name || "current"} game will end.`, ok: "Start new"
-    });
-    if (!ok) return;
+  if (isLive(g)) {
+    toast(`Finish or stop your ${GAMES[g.type]?.name || "current"} game first ⏹`);
+    screen = "play";
+    scheduleRender();
+    return;
   }
   if (type !== "ludo") { createInvite(type); return; }
   // Ludo: classic (4 tokens) or quick (2 tokens)
@@ -212,15 +231,70 @@ function showInvite(game) {
     <p class="gi-tag">${esc(TAGLINES[hash(game.id) % TAGLINES.length])}</p>
     ${game.type === "ludo" ? `<p class="muted small">${game.opts?.tokens === 2 ? "⚡ Quick game · 2 tokens each" : "👑 Classic · 4 tokens each"}</p>` : ""}
     <div class="modal-actions">
-      <button class="btn btn-ghost" data-no>Not now</button>
-      <button class="btn btn-primary" data-yes>Let's play ❤️</button>
-    </div>`, { cls: "game-invite" });
+      <button class="btn btn-ghost" data-no>✖ No</button>
+      <button class="btn btn-primary" data-yes>▶ Play</button>
+    </div>`, { cls: "game-invite", dismissable: false });
   m.gameId = game.id;
   inviteModal = m;
-  m.onclose = () => { if (inviteModal === m) inviteModal = null; };
+  // a little invite tune (repeats a few times while the popup is open)
+  const tune = () => tone([660, 880, 1047, 1319], 0.13, 0.04, 0.07);
+  tune();
+  let n = 0;
+  const t = setInterval(() => { if (++n > 4 || !m.isConnected) clearInterval(t); else tune(); }, 1800);
+  m.onclose = () => { clearInterval(t); if (inviteModal === m) inviteModal = null; };
   $("[data-yes]", m).addEventListener("click", () => { m.close(); acceptInvite(); });
   $("[data-no]", m).addEventListener("click", () => { m.close(); declineInvite(); });
-  navigator.vibrate?.([40, 60, 40]);
+  navigator.vibrate?.([60, 80, 60, 80, 120]);
+}
+
+/* ------------------------------------------------------------------ stop a live game (both must agree) */
+async function requestStop(g) {
+  if (!g) return;
+  const me = uid();
+  if (g.status === "invited") { // my own invite nobody accepted yet: just cancel it
+    if (g.inviter === me) { closingByMe.add(g.id); closeGame(g, "cancelled"); }
+    return;
+  }
+  if (g.status === "done") { closingByMe.add(g.id); closeGame(g, "done"); return; }
+  const sr = g.stopReq;
+  // asked over a minute ago and no answer (their app is closed) → allowed to end it
+  if (sr?.by === me && !sr.answer && Date.now() - sr.at > 60000) {
+    const ok = await confirmDialog({ icon: "⏹", title: "No answer yet", text: `${pName()} hasn't answered for a minute. End the game anyway? No one gets a win.`, ok: "End game", danger: true });
+    if (ok) { closingByMe.add(g.id); closeGame(g, "stopped"); }
+    return;
+  }
+  if (sr?.by === me && !sr.answer) { toast(`Waiting for ${pName()} to answer ⏳`); return; }
+  const ok = await confirmDialog({ icon: "⏹", title: "Stop this game?", text: `${pName()} will be asked. The game stops only if they agree.`, ok: "Ask to stop" });
+  if (!ok) return;
+  updateDoc(doc(db, "games", g.id), { stopReq: { by: me, at: Date.now(), answer: null } })
+    .then(() => toast(`Asked ${pName()} to stop the game ⏳`))
+    .catch(() => toast("Couldn't ask. Try again."));
+  notifyPartner("game", `${myName()} wants to stop the ${GAMES[g.type]?.name || ""} game ⏹`, { refId: g.id });
+}
+
+function showStopRequest(game) {
+  const mod = GAMES[game.type];
+  const m = openModal(`
+    <div class="gi-orb"><span>⏹</span><i>${mod.emoji}</i></div>
+    <h2>${esc(pName())} wants to stop ${esc(mod.name)}</h2>
+    <p class="gi-tag">If you agree, the game ends and no one gets a win.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-no>Keep playing</button>
+      <button class="btn btn-primary" data-yes>Stop game</button>
+    </div>`, { dismissable: false });
+  tone([880, 660], 0.14, 0.05, 0.06);
+  $("[data-yes]", m).addEventListener("click", () => {
+    m.close();
+    const g = G.open;
+    if (!g || g.id !== game.id) return;
+    closingByMe.add(g.id);
+    commit(g, { open: false, status: "stopped", stopReq: { ...g.stopReq, answer: "yes" } });
+  });
+  $("[data-no]", m).addEventListener("click", () => {
+    m.close();
+    const g = G.open;
+    if (g?.id === game.id && g.stopReq) updateDoc(doc(db, "games", g.id), { stopReq: { ...g.stopReq, answer: "no" } }).catch(() => {});
+  });
 }
 
 // after the PIN: show an invite that arrived while locked
@@ -235,7 +309,7 @@ async function acceptInvite() {
   screen = "play";
   hooks.go("games");
   scheduleRender();
-  if (!(await commit(g, { status: "active" }))) { screen = "lobby"; scheduleRender(); }
+  if (!(await commit(g, { status: "active", idle: 0 }))) { screen = "lobby"; scheduleRender(); }
 }
 
 function declineInvite() {
@@ -285,7 +359,7 @@ function openBanner() {
     btns = `<button class="btn btn-ghost btn-sm" data-action="gameDecline">Not now</button><button class="btn btn-primary btn-sm" data-action="gameAccept">Let's play ❤️</button>`;
   } else if (g.status === "active") {
     text = g.turn === me ? `✨ Your turn in ${esc(mod.name)}` : `💭 ${esc(pName())}'s turn in ${esc(mod.name)}`;
-    btns = `<button class="btn btn-primary btn-sm" data-action="gameOpen">▶ Continue</button>`;
+    btns = `<button class="btn btn-ghost btn-sm" data-action="gameStop">⏹ Stop</button><button class="btn btn-primary btn-sm" data-action="gameOpen">▶ Continue</button>`;
   } else if (g.status === "done") {
     text = g.winner === "draw" ? `🤝 Last ${esc(mod.name)} was a draw` : `🏆 ${g.winner === me ? "You" : esc(pName())} won the last ${esc(mod.name)}`;
     btns = `<button class="btn btn-primary btn-sm" data-action="gameOpen">🔁 Rematch</button>`;
@@ -308,7 +382,9 @@ function gameCard(type) {
       </div>
       ${here
         ? `<button class="btn btn-ghost btn-sm" data-action="gameOpen">▶ Open</button>`
-        : `<button class="btn btn-primary btn-sm" data-action="gameInvite" data-type="${type}" ${state.partner ? "" : "disabled"}>💌 Invite</button>`}
+        : isLive(g)
+          ? `<button class="btn btn-ghost btn-sm" disabled>🔒 ${esc(GAMES[g.type]?.name || "A game")} is live</button>`
+          : `<button class="btn btn-primary btn-sm" data-action="gameInvite" data-type="${type}" ${state.partner ? "" : "disabled"}>💌 Invite</button>`}
     </article>`;
 }
 
@@ -369,10 +445,11 @@ function mountPlay(el) {
     <header class="gm-head">
       <button class="icon-btn sm ghost" data-gm-back aria-label="Back to games">${ICONS.back}</button>
       <div class="gm-title"><b>${mod.emoji} ${esc(mod.name)}</b><small data-gm-round></small></div>
-      <button class="icon-btn sm ghost" data-gm-menu aria-label="Game menu">${ICONS.dots}</button>
+      <button class="gm-stop" data-gm-stop aria-label="Stop game">⏹ Stop</button>
     </header>
     <div class="gm-players" data-gm-players></div>
     <p class="gm-status" data-gm-status></p>
+    <div class="gm-timer" data-gm-timer hidden><i></i><b data-gm-secs></b></div>
     <div class="gm-stage">
       <div class="gm-board" data-gm-board></div>
       <div class="gm-fx" data-gm-fx></div>
@@ -395,8 +472,9 @@ function mountPlay(el) {
     move: fields => {
       if (!ctx.canAct()) return;
       p.sending = true;
+      clearTimer(p);
       paintChrome(p);
-      commit(p.shown, fields).then(ok => { if (!ok) { p.sending = false; paintChrome(p); } });
+      commit(p.shown, { ...fields, idle: 0 }).then(ok => { if (!ok) { p.sending = false; paintChrome(p); armTimer(p); } });
     },
     rollValue,
     dice: { html: diceHtml, roll: rollDice },
@@ -408,10 +486,11 @@ function mountPlay(el) {
   play = p;
   p.inst.update(game, null, false);
   paintChrome(p);
+  armTimer(p);
   if (game.status === "done") showWin(p, game, false);
 
   $("[data-gm-back]", el).addEventListener("click", () => { screen = "lobby"; scheduleRender(); });
-  $("[data-gm-menu]", el).addEventListener("click", () => gameMenu(p));
+  $("[data-gm-stop]", el).addEventListener("click", () => requestStop(p.game));
   let lastTap = 0;
   $(".gm-react", el).addEventListener("click", e => {
     const b = e.target.closest("[data-react]");
@@ -426,8 +505,60 @@ function mountPlay(el) {
 
 function unmountPlay() {
   if (!play) return;
+  clearTimer(play);
   play.inst?.destroy?.();
   play = null;
+}
+
+/* ------------------------------------------------------------------ turn timer */
+function clearTimer(p) {
+  clearTimeout(p.timer);
+  clearInterval(p.tick);
+  p.timer = p.tick = 0;
+}
+
+// starts the 6-second countdown for whoever's turn it is (after any animation has finished)
+function armTimer(p) {
+  clearTimer(p);
+  if (play !== p) return;
+  const g = p.shown, bar = $("[data-gm-timer]", p.el);
+  const paused = (g.idle || 0) >= MAX_IDLE;
+  if (g.status !== "active" || paused || p.busy || p.sending || g.moveNo !== p.game.moveNo) { bar.hidden = true; return; }
+  const mine = g.turn === uid(), moveNo = g.moveNo, start = Date.now();
+  bar.hidden = false;
+  bar.classList.toggle("mine", mine);
+  bar.classList.remove("hurry");
+  const fill = bar.querySelector("i"), secs = bar.querySelector("[data-gm-secs]");
+  fill.style.animation = "none";
+  void fill.offsetWidth;
+  fill.style.animation = `gmTimer ${TURN_SECONDS}s linear forwards`;
+  const paint = () => {
+    const left = Math.max(0, TURN_SECONDS - Math.floor((Date.now() - start) / 1000));
+    secs.textContent = `${mine ? "Your" : `${pName()}'s`} chance · ${left}s`;
+    bar.classList.toggle("hurry", left <= 2);
+    if (mine && left <= 3 && left > 0) navigator.vibrate?.(15);
+  };
+  paint();
+  p.tick = setInterval(paint, 1000);
+  p.timer = setTimeout(() => timeUp(p, moveNo), TURN_SECONDS * 1000 + (mine ? 0 : GRACE_MS));
+}
+
+// time's up: the chance passes to the other player (written by whichever phone gets there first)
+function timeUp(p, moveNo) {
+  clearTimer(p);
+  if (play !== p) return;
+  const g = p.game;
+  if (g.moveNo !== moveNo || g.status !== "active" || p.sending || p.busy) return;
+  const mod = GAMES[g.type];
+  const who = g.turn, next = g.players.find(u => u !== who);
+  p.sending = true;
+  paintChrome(p);
+  commit(g, {
+    state: mod.onTimeout ? mod.onTimeout(g.state) : g.state,
+    turn: next,
+    last: { kind: "timeout", by: who },
+    idle: (g.idle || 0) + 1
+  }).then(ok => { if (!ok) { p.sending = false; paintChrome(p); } });
 }
 
 function receive(game) {
@@ -436,7 +567,8 @@ function receive(game) {
   if (!game || game.id !== p.game.id) {
     // closed → back to the list; replaced by a new game → the screen re-opens with the new one
     if (!game) {
-      if (!closingByMe.has(p.game.id)) toast(`${pName()} ended the game 🎮`);
+      if (p.game.stopReq?.by === uid()) toast(`${pName()} agreed. Game stopped ⏹`);
+      else if (!closingByMe.has(p.game.id)) toast(`${pName()} ended the game 🎮`);
       screen = "lobby";
     }
     unmountPlay();
@@ -463,15 +595,21 @@ async function pump(p) {
     if (moved) {
       p.sending = false;
       p.busy = true;
+      clearTimer(p);
       paintChrome(p);
-      const animate = g.moveNo === prev.moveNo + 1 && g.round === prev.round && prev.status === "active";
+      const timeout = g.last?.kind === "timeout";
+      const animate = !timeout && g.moveNo === prev.moveNo + 1 && g.round === prev.round && prev.status === "active";
       try { await p.inst.update(g, prev, animate); } catch (err) { console.warn("[asaumi] game update", err); }
+      if (timeout && g.moveNo === prev.moveNo + 1) {
+        banner(p, g.last.by === uid() ? "⏰ Time's up! Your chance passed" : `⏰ ${pName()} took too long. Your turn!`);
+      }
       p.busy = false;
     }
     p.shown = g;
     paintChrome(p);
     if (g.status === "done") showWin(p, g, moved && g.moveNo === prev.moveNo + 1);
     else hideWin(p);
+    if (moved || !p.timer) armTimer(p);
   }
   p.running = false;
 }
@@ -495,6 +633,7 @@ function paintChrome(p) {
   if (g.status === "invited") status = g.inviter === me ? `💌 Waiting for ${pName()}…` : `💌 ${pName()} invited you!`;
   else if (g.status === "done") status = g.winner === "draw" ? "🤝 It's a draw!" : g.winner === me ? "🏆 You won!" : `🏆 ${pName()} won!`;
   else if (p.sending) status = "Sending…";
+  else if ((g.idle || 0) >= MAX_IDLE) status = g.turn === me ? "⏸ Paused · play to continue" : `⏸ Paused · waiting for ${pName()}`;
   else status = g.turn === me ? "Your turn, love ❤️" : `${pName()}'s turn… 💭`;
   const st = $("[data-gm-status]", p.el);
   st.textContent = status;
@@ -584,7 +723,7 @@ function showWin(p, g, celebrate) {
     const cur = p.game;
     const starter = cur.starter === me ? other : me; // take turns starting
     const init = mod.init(cur.players, cur.opts || {}, starter);
-    commit(cur, { state: init.state, turn: init.turn, status: "active", winner: null, last: null, round: (cur.round || 1) + 1, starter });
+    commit(cur, { state: init.state, turn: init.turn, status: "active", winner: null, last: null, round: (cur.round || 1) + 1, starter, idle: 0, stopReq: null });
   });
   if (celebrate) navigator.vibrate?.(iWon ? [60, 50, 60, 50, 120] : 40);
 }
@@ -593,25 +732,6 @@ function hideWin(p) {
   p.winEl?.remove();
   p.winEl = null;
   p.winKey = null;
-}
-
-function gameMenu(p) {
-  const m = openModal(`
-    <div class="msg-menu">
-      <button data-m="lobby">🎮<span>All games</span></button>
-      <button data-m="end" class="danger">${ICONS.close}<span>End this game</span></button>
-    </div>
-    <button class="btn btn-ghost btn-block" data-close>Cancel</button>`, { cls: "action-sheet" });
-  m.querySelector(".msg-menu").addEventListener("click", async e => {
-    const b = e.target.closest("[data-m]");
-    if (!b) return;
-    m.close();
-    if (b.dataset.m === "lobby") { screen = "lobby"; scheduleRender(); return; }
-    const ok = await confirmDialog({ icon: "🎮", title: "End this game?", text: "It closes for both of you. Scores already won stay.", ok: "End game", danger: true });
-    if (!ok || !play) return;
-    closingByMe.add(p.game.id);
-    closeGame(p.game, p.game.status === "done" ? "done" : "ended");
-  });
 }
 
 /* ------------------------------------------------------------------ view */
@@ -639,5 +759,6 @@ Object.assign(actions, {
   gameOpen: () => { if (G.open) { screen = "play"; scheduleRender(); } },
   gameAccept: acceptInvite,
   gameDecline: declineInvite,
-  gameCancel: () => { const g = G.open; if (g) { closingByMe.add(g.id); closeGame(g, "cancelled"); } }
+  gameCancel: () => { const g = G.open; if (g) { closingByMe.add(g.id); closeGame(g, "cancelled"); } },
+  gameStop: () => requestStop(G.open)
 });

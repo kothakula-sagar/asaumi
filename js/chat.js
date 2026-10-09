@@ -13,6 +13,7 @@ import { linkPreviewHtml, handleLinkClick } from "./linkpreview.js";
 import { carouselHtml, wireCarousel } from "./carousel.js";
 import { KEEP_DAYS } from "./chatstore.js";
 import { enc, encDoc, MSG_FIELDS } from "./e2ee.js";
+import { inCall, showCallMessage } from "./call.js";
 export { renderOurStickers };
 
 const EMOJIS = "❤️ 😘 🥰 😍 😊 😂 🤣 😅 😇 🙈 😴 🥺 😢 😭 😤 😡 🤗 🤔 😌 😋 😎 🤍 💜 💙 💕 💖 💞 💫 ✨ 🌙 ⭐ 🌸 🌹 🌈 ☕ 🍫 🍕 🎶 🎉 🎂 🙏 👍 👌 🤞 👏 🫶 💪 🔥 💯".split(" ");
@@ -511,7 +512,9 @@ export function markRead() {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) markRead(); });
 
 // Called by app.js with each new message from the other person (not the first load)
-export function onIncomingMessage() {
+export function onIncomingMessage(m) {
+  // during a call the message floats over the video for a few seconds instead
+  if (m && inCall() && showCallMessage(m)) return;
   const inChat = state.view === "chat" && !document.hidden && !state.locked;
   if (inChat) return;
   const text = notifText("message", { name: partnerName() });
@@ -531,6 +534,9 @@ async function sendMessage(data) {
   pushPartner({ body: notifText("message"), page: "chat", tag: "chat" });
   return ref;
 }
+
+// used by the call screen to send a quick message / emoji
+actions.sendQuickText = text => sendMessage({ type: "text", text });
 
 let keepKeyboard = false;
 

@@ -423,7 +423,7 @@ async function applyLive(raw, added = [], fromCache = true) {
   archive = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
   mergeMessages();
   state.loaded.messages = true;
-  added.forEach(m => onIncomingMessage(m));
+  added.forEach(m => onIncomingMessage(showable(list.find(x => x.id === m.id) || m))); // decrypted copy
   markDelivered();
   updateChat();
   scheduleRender();

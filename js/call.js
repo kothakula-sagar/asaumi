@@ -49,7 +49,16 @@ function renderCallScreen() {
         <span class="call-status" id="call-status"></span>
       </div>
       <video class="local-video" autoplay playsinline muted></video>
+      <div class="call-float" data-cfloat aria-live="polite"></div>
+      <div class="call-chat" data-cchat hidden>
+        <div class="cch-emojis">${callEmojis().map(e => `<button type="button" data-qe="${esc(e)}">${esc(e)}</button>`).join("")}</div>
+        <form class="cch-form">
+          <input type="text" maxlength="300" placeholder="Message…" autocomplete="off" />
+          <button type="submit" aria-label="Send">${ICONS.send}</button>
+        </form>
+      </div>
       <div class="call-controls glass">
+        <button class="cc-btn" data-cc="chat" aria-label="Chat">${ICONS.chat}</button>
         <button class="cc-btn" data-cc="mic" aria-label="Microphone">${ICONS.mic}</button>
         ${isVideo() ? `<button class="cc-btn" data-cc="cam" aria-label="Camera">${ICONS.video}</button>` : ""}
         ${isVideo() ? `<button class="cc-btn" data-cc="flip" aria-label="Switch camera" hidden>${ICONS.flip}</button>` : ""}
@@ -66,9 +75,19 @@ function renderCallScreen() {
   call.els.local.classList.toggle("mirror", call.facing === "user");
   if (call.remote) attachRemote();
   scr.addEventListener("click", e => {
+    const qe = e.target.closest("[data-qe]");
+    if (qe) { sendInCall(qe.dataset.qe); return; }
     const b = e.target.closest("[data-cc]");
     if (!b) return;
-    ({ mic: toggleMic, cam: toggleCam, flip: flipCamera, end: () => hangup() })[b.dataset.cc]?.();
+    ({ mic: toggleMic, cam: toggleCam, flip: flipCamera, chat: toggleCallChat, end: () => hangup() })[b.dataset.cc]?.();
+  });
+  $(".cch-form", scr).addEventListener("submit", e => {
+    e.preventDefault();
+    const input = e.currentTarget.querySelector("input");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    sendInCall(text);
   });
   navigator.mediaDevices?.enumerateDevices?.().then(ds => {
     if (call?.els?.flip && ds.filter(d => d.kind === "videoinput").length > 1) call.els.flip.hidden = false;
@@ -131,6 +150,45 @@ function showEnded(title, detail) {
   const close = () => { root().innerHTML = ""; document.body.classList.remove("in-call"); };
   $("[data-dismiss]", root()).addEventListener("click", close);
   setTimeout(() => { if ($(".ended-screen", root())) close(); }, 3500);
+}
+
+/* ------------------------------------------------------------------ chat during the call */
+// Messages are normal (encrypted) chat messages, so they're also in the chat afterwards. On the call
+// screen they float over the video for a few seconds and then fade away, so the call isn't disturbed.
+export const CALL_EMOJIS_DEFAULT = ["❤️", "😘", "😂", "🥰", "👍", "🔥"];
+export const callEmojis = () => (Array.isArray(state.me?.callEmojis) && state.me.callEmojis.length ? state.me.callEmojis : CALL_EMOJIS_DEFAULT);
+const FLOAT_MS = 4200;
+
+function toggleCallChat() {
+  const box = call?.els?.screen && $("[data-cchat]", call.els.screen);
+  if (!box) return;
+  box.hidden = !box.hidden;
+  call.els.screen.classList.toggle("chat-open", !box.hidden);
+  if (!box.hidden) $("input", box).focus({ preventScroll: true });
+}
+
+function sendInCall(text) {
+  if (!call) return;
+  showCallMessage({ type: "text", text }, true);
+  Promise.resolve(actions.sendQuickText?.(text)).catch(() => toast("Message couldn't be sent."));
+  navigator.vibrate?.(8);
+}
+
+// floating bubble on the call screen; m = chat message (decrypted)
+export function showCallMessage(m, mine = false) {
+  const wrap = call?.els?.screen && $("[data-cfloat]", call.els.screen);
+  if (!wrap) return false;
+  const label = m.type === "text" ? m.text
+    : { sticker: "🎨 Sticker", image: "📷 Photo", video: "🎬 Video", voice: "🎤 Voice message" }[m.type] || "💬 Message";
+  const onlyEmoji = /^(\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|\s){1,8}$/u.test(label || "") && !/\d/.test(label);
+  const b = document.createElement("div");
+  b.className = `cf-msg ${mine ? "me" : "them"} ${onlyEmoji ? "emoji" : ""}`;
+  b.textContent = label;
+  b.style.animationDuration = `${FLOAT_MS}ms`;
+  b.addEventListener("animationend", () => b.remove());
+  wrap.append(b);
+  while (wrap.children.length > 4) wrap.firstElementChild.remove(); // never more than 4 on screen
+  return true;
 }
 
 /* ------------------------------------------------------------------ media */

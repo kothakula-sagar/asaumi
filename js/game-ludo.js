@@ -74,6 +74,8 @@ export default {
       turn: starter
     };
   },
+  // time ran out (roll or token not chosen): the dice is dropped and the other player rolls
+  onTimeout: st => ({ ...st, phase: "roll" }),
   badge: (g, u) => {
     const t = g.state?.t?.[u] || [];
     return `🏠 ${t.filter(r => r === 56).length}/${t.length}`;

@@ -1268,3 +1268,44 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .e2-dev-main small { color: var(--muted); font-size: 12.5px; }
 .e2-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .dev-warn { margin: 6px 0 0; padding: 10px 14px; border-radius: 14px; font-size: 13.5px; font-weight: 700; color: #fff3c4; background: rgba(255, 196, 0, .16); border: 1px solid rgba(255, 214, 102, .5); }
+
+/* ---------- Chat during calls (floats over the video, fades after a few seconds) ---------- */
+.call-float {
+  position: absolute; left: 12px; right: 12px; bottom: calc(118px + var(--safe-b)); z-index: 4;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none;
+}
+.call-screen.chat-open .call-float { bottom: calc(222px + var(--safe-b)); }
+.cf-msg {
+  max-width: 78%; padding: 8px 14px; border-radius: 18px 18px 18px 6px; font-size: 15px; font-weight: 700; color: #fff;
+  background: rgba(20, 8, 70, .58); border: 1px solid rgba(255, 255, 255, .25); box-shadow: 0 6px 18px rgba(0, 0, 0, .3);
+  animation-name: cfLife; animation-timing-function: ease; animation-fill-mode: both; word-break: break-word;
+}
+.cf-msg.me { align-self: flex-end; border-radius: 18px 18px 6px 18px; background: rgba(108, 59, 255, .7); }
+.cf-msg.emoji { background: none; border: 0; box-shadow: none; font-size: 40px; padding: 0 4px; }
+@keyframes cfLife {
+  0% { opacity: 0; transform: translateY(14px) scale(.9); }
+  8% { opacity: 1; transform: translateY(0) scale(1); }
+  82% { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-26px); }
+}
+.call-chat {
+  position: absolute; left: 12px; right: 12px; bottom: calc(112px + var(--safe-b)); z-index: 5;
+  display: grid; gap: 8px; padding: 10px; border-radius: 22px;
+  background: rgba(20, 8, 70, .55); border: 1px solid rgba(255, 255, 255, .25);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); animation: rise .25s var(--ease) both;
+}
+.cch-emojis { display: flex; justify-content: space-around; flex-wrap: wrap; gap: 4px; }
+.cch-emojis button { width: 42px; height: 42px; border-radius: 50%; font-size: 24px; transition: transform .12s, background .15s; }
+.cch-emojis button:active { transform: scale(1.3); background: rgba(255, 255, 255, .18); }
+.cch-form { display: flex; gap: 8px; }
+.cch-form input { flex: 1; min-width: 0; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .14); color: #fff; outline: none; font-size: 15.5px; }
+.cch-form input::placeholder { color: rgba(255, 255, 255, .6); }
+.cch-form button { width: 44px; height: 44px; flex: none; border-radius: 50%; padding: 11px; color: var(--ink); background: linear-gradient(135deg, #fff, #d9f3ff); }
+
+/* quick-emoji picker (More) */
+.ce-picked { min-height: 46px; padding: 8px 12px; border-radius: 16px; font-size: 28px; text-align: center; background: rgba(255, 255, 255, .14); }
+.ce-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; max-height: 260px; overflow: auto; }
+.ce-grid button { height: 44px; border-radius: 14px; font-size: 24px; background: rgba(255, 255, 255, .08); border: 1.5px solid transparent; transition: transform .1s, background .15s; }
+.ce-grid button.on { background: rgba(255, 255, 255, .26); border-color: rgba(255, 255, 255, .85); }
+.ce-grid button:active { transform: scale(.92); }
+.ce-preview { font-size: 18px !important; letter-spacing: 2px; }

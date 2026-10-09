@@ -15,6 +15,54 @@ import { backupCard } from "./backup.js";
 import { biometricSettingsRow } from "./lock.js";
 import { e2eeCard } from "./e2ee.js";
 import { screenshotRows } from "./screenguard.js";
+import { callEmojis, CALL_EMOJIS_DEFAULT } from "./call.js";
+
+/* ------------------------------------------------------------------ quick emojis shown during calls */
+const EMOJI_CHOICES = (
+  "❤️ 😘 😂 🥰 👍 🔥 😍 🤣 😊 😇 🥺 😢 😭 😤 😡 🤗 🤔 😴 😎 😜 🙈 💋 💕 💖 💜 💙 🤍 ✨ 🌹 🌙 ⭐ 🎉 👏 🙏 👌 🤞 🫶 💪 ☕ 🍫 🍕 🎶"
+).split(" ");
+const MAX_CALL_EMOJIS = 8;
+
+function pickCallEmojis() {
+  let picked = [...callEmojis()];
+  const m = openModal(`
+    <h2>Quick emojis in calls</h2>
+    <p>Pick up to ${MAX_CALL_EMOJIS}. They appear when you tap 💬 during a call, and float over the video for a few seconds.</p>
+    <div class="ce-picked"></div>
+    <div class="ce-grid">${EMOJI_CHOICES.map(e => `<button type="button" data-e="${e}">${e}</button>`).join("")}</div>
+    <p class="form-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-reset>Default</button>
+      <button class="btn btn-primary" data-save>Save</button>
+    </div>`);
+  const err = $(".form-error", m);
+  const draw = () => {
+    $(".ce-picked", m).textContent = picked.join(" ") || "Nothing picked yet";
+    m.querySelectorAll("[data-e]").forEach(b => b.classList.toggle("on", picked.includes(b.dataset.e)));
+  };
+  draw();
+  $(".ce-grid", m).addEventListener("click", e => {
+    const b = e.target.closest("[data-e]");
+    if (!b) return;
+    err.textContent = "";
+    const x = b.dataset.e;
+    if (picked.includes(x)) picked = picked.filter(y => y !== x);
+    else if (picked.length >= MAX_CALL_EMOJIS) { err.textContent = `Up to ${MAX_CALL_EMOJIS}. Tap one to remove it first.`; return; }
+    else picked.push(x);
+    draw();
+  });
+  $("[data-reset]", m).addEventListener("click", () => { picked = [...CALL_EMOJIS_DEFAULT]; draw(); });
+  $("[data-save]", m).addEventListener("click", async () => {
+    if (!picked.length) { err.textContent = "Pick at least one."; return; }
+    try {
+      await setDoc(doc(db, "users", uid()), { callEmojis: picked }, { merge: true });
+      state.me = { ...state.me, callEmojis: picked };
+      m.close();
+      toast("Saved ✨");
+      scheduleRender();
+    } catch (e) { err.textContent = friendlyError(e, "Couldn't save. Try again."); }
+  });
+}
 
 function callHistory() {
   const list = state.calls.filter(c => c.status !== "ringing").slice(0, 8);
@@ -128,6 +176,11 @@ function renderMore() {
       <div class="glass card">
         <h3>Recent calls</h3>
         <p>Calls are live only — never recorded or stored.</p>
+        <button class="set-row" data-action="pickCallEmojis">
+          <span class="set-ico">💬</span>
+          <span class="set-main"><b>Quick emojis in calls</b><small class="ce-preview">${callEmojis().map(esc).join(" ")}</small></span>
+          <span class="chev">›</span>
+        </button>
         ${callHistory()}
       </div>
 
@@ -393,6 +446,7 @@ views.more = { render: renderMore };
 
 Object.assign(actions, {
   editName: () => editName(false),
+  pickCallEmojis,
   customizeApp,
   changePassword,
   enableNotifications,

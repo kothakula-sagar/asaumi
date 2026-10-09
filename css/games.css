@@ -309,3 +309,19 @@ body:has(#view .gm) .app { padding-bottom: calc(20px + var(--safe-b)); }
 @media (prefers-reduced-motion: reduce) {
   .fx-pop, .gm-confetti i, .dice.ready, .ld-tok.can, .games-strip span { animation: none !important; }
 }
+
+/* ---------- Stop button + turn timer ---------- */
+.gm-stop {
+  height: 40px; padding: 0 14px; border-radius: 14px; font-weight: 800; font-size: 14px; color: #fff;
+  background: linear-gradient(135deg, rgba(255, 92, 138, .55), rgba(192, 38, 211, .45)); border: 1px solid rgba(255, 255, 255, .45);
+  transition: transform .12s;
+}
+.gm-stop:active { transform: scale(.95); }
+.gm-timer { position: relative; height: 22px; margin: -2px auto 0; width: min(100%, 360px); border-radius: 99px; overflow: hidden; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .3); }
+.gm-timer i { position: absolute; inset: 0; transform-origin: left center; background: linear-gradient(90deg, var(--sky2), #8b5cf6); }
+.gm-timer.mine i { background: linear-gradient(90deg, #ff8fb1, var(--rose)); }
+.gm-timer.hurry i { background: linear-gradient(90deg, #ffb020, #ff4d6d); }
+.gm-timer b { position: relative; display: block; text-align: center; font-size: 12.5px; font-weight: 800; line-height: 20px; text-shadow: 0 1px 3px rgba(29, 10, 110, .6); }
+.gm-timer.hurry { animation: timerShake .5s ease-in-out infinite; }
+@keyframes gmTimer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@keyframes timerShake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
