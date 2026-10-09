@@ -65,7 +65,7 @@ function pickCallEmojis() {
 }
 
 function callHistory() {
-  const list = state.calls.filter(c => c.status !== "ringing").slice(0, 8);
+  const list = state.calls.filter(c => c.status !== "ringing").slice(0, 10);
   if (!list.length) return '<p class="muted small">No calls yet.</p>';
   return `<div class="call-log">${list.map(c => {
     const out = c.callerId === uid();

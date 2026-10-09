@@ -36,6 +36,7 @@ import { loadArchive, saveMessages, forgetMessages, maintainChat } from "./chats
 import { autoBackup, offerRestore } from "./backup.js";
 import { watchGames, checkGameInvite } from "./games.js";
 import { startE2ee, checkE2eePrompts, decDoc, decLocation, isEnc, LOCKED, MSG_FIELDS } from "./e2ee.js";
+import { applyScreenPolicy } from "./screenguard.js";
 
 initShare(); // "Share to Asaumi" from other apps
 
@@ -52,7 +53,7 @@ onAuthStateChanged(auth, async user => {
   if (!user) {
     stopWatchingIncoming();
     resetChat();
-    live = []; archive = []; archiveFor = null; olderDone = false; // the saved chat stays on the phone for the next login
+    live = []; archive = []; archiveFor = null; olderDone = false; callsTrimmed = false; // the saved chat stays on the phone for the next login
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: LIVE_MESSAGES, loaded: {},
       memories: [], memLatest: null, memCount: null, movements: [], calls: [], notifications: [], background: null, pinHash: null, wishes: [], wishError: null,
@@ -62,6 +63,7 @@ onAuthStateChanged(auth, async user => {
     closeAllModals();
     renderLock();
     applyBackground();
+    applyScreenPolicy();
     $("#app").hidden = true;
     $("#auth").hidden = false;
     return;
@@ -188,6 +190,7 @@ function subscribe() {
     const others = Object.values(state.members).filter(u => u.uid !== me);
     state.partner = others[0] || null;
     if (state.me?.shareLocation) startLocation(); else stopLocation();
+    applyScreenPolicy(); // screenshots blocked unless this person has Developer mode on
     scheduleRender();
   }, onErr));
 
@@ -243,9 +246,13 @@ function subscribe() {
     decrypted("wishesMine", list, decWith(WISH_FIELDS), out => { wishParts.mine = out; mergeWishes(); });
   }, wishErr));
 
-  sub(onSnapshot(query(collection(db, "calls"), orderBy("createdAt", "desc"), limit(30)), snap => {
-    state.calls = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+  // Calls: Firebase keeps only the newest 10; older ones are deleted there but stay on this phone
+  sub(onSnapshot(query(collection(db, "calls"), orderBy("createdAt", "desc"), limit(CALL_KEEP + 5)), snap => {
+    const liveCalls = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    rememberCalls(liveCalls);
+    state.calls = mergeCalls(liveCalls);
     scheduleRender();
+    if (!snap.metadata.fromCache && !snap.metadata.hasPendingWrites) trimCalls(liveCalls);
   }, onErr));
 
   let firstNotif = true;
@@ -318,6 +325,55 @@ function subscribe() {
   // refresh "last seen", distance, and catch midnight on a birthday while the app is open
   const tick = setInterval(() => { scheduleRender(); maybeShowSurprise(); syncBirthdayNotification(); }, 20000);
   sub(() => clearInterval(tick));
+}
+
+/* ------------------------------------------------------------------ call history */
+// Firebase keeps only the newest CALL_KEEP calls; every finished call is also saved on this phone
+// (localStorage), so the full history still shows in More and in the chat.
+const CALL_KEEP = 10;
+const CALL_DONE = ["ended", "missed", "declined", "busy", "failed"];
+const callsKey = () => `asaumi.calls.${state.user?.uid}`;
+let callsTrimmed = false; // the one-time deep clean-up of older calls ran this session
+
+function localCalls() {
+  try {
+    return (JSON.parse(localStorage.getItem(callsKey()) || "[]") || []).map(c => ({ ...c, createdAt: new Date(c.createdAt), local: true }));
+  } catch { return []; }
+}
+function rememberCalls(list) {
+  const done = list.filter(c => CALL_DONE.includes(c.status) && toDate(c.createdAt));
+  if (!done.length) return;
+  const byId = new Map(localCalls().map(c => [c.id, c]));
+  done.forEach(c => byId.set(c.id, {
+    id: c.id, callerId: c.callerId, calleeId: c.calleeId, callerName: c.callerName || "", kind: c.kind,
+    status: c.status, duration: c.duration || 0, createdAt: toDate(c.createdAt)
+  }));
+  const all = [...byId.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, 300)
+    .map(c => ({ ...c, createdAt: c.createdAt.getTime(), local: undefined }));
+  try { localStorage.setItem(callsKey(), JSON.stringify(all)); } catch { /* storage full: ignore */ }
+}
+function mergeCalls(liveCalls) {
+  const byId = new Map(localCalls().map(c => [c.id, c]));
+  liveCalls.forEach(c => byId.set(c.id, c));
+  return [...byId.values()].sort((a, b) => (toDate(b.createdAt)?.getTime() || Infinity) - (toDate(a.createdAt)?.getTime() || Infinity)).slice(0, 300);
+}
+async function trimCalls(liveCalls) {
+  try {
+    let list = liveCalls;
+    if (!callsTrimmed) { // once per session: also catch older calls the listener never sees
+      callsTrimmed = true;
+      const snap = await getDocs(query(collection(db, "calls"), orderBy("createdAt", "desc"), limit(300)));
+      list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rememberCalls(list);
+    }
+    const old = list.slice(CALL_KEEP).filter(c => CALL_DONE.includes(c.status));
+    if (!old.length) return;
+    const b = writeBatch(db);
+    old.slice(0, 450).forEach(c => b.delete(doc(db, "calls", c.id)));
+    await b.commit();
+  } catch (err) {
+    console.warn("[asaumi] trim calls", err); // e.g. rules not published yet: calls simply stay
+  }
 }
 
 /* ------------------------------------------------------------------ memories (loaded only once unlocked) */

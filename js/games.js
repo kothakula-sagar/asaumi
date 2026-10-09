@@ -6,7 +6,7 @@
 //  • The board is built once when the game opens and then only animated (CSS transforms / transitions);
 //    the app's normal re-render never touches it, so it stays smooth.
 import {
-  doc, collection, onSnapshot, query, where, updateDoc, writeBatch, serverTimestamp, increment
+  doc, collection, onSnapshot, query, where, updateDoc, writeBatch, serverTimestamp, increment, getDocs, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, esc, ICONS, toast, openModal, confirmDialog, avatarHtml, myName, partnerName, shortWhen,
@@ -88,12 +88,45 @@ export async function rollDice(btn, v) {
   btn.classList.remove("rolling");
 }
 
+/* ------------------------------------------------------------------ recent results + clean-up */
+// Firebase keeps the 10 newest results (settings/games.recent); this phone keeps a longer history.
+const RECENT_KEEP = 10;
+const recentKey = () => `asaumi.recentGames.${uid()}`;
+function localRecent() {
+  try { return JSON.parse(localStorage.getItem(recentKey()) || "[]") || []; } catch { return []; }
+}
+function rememberRecent(list = []) {
+  const seen = new Map(localRecent().map(r => [`${r.at}:${r.type}`, r]));
+  list.forEach(r => r?.at && seen.set(`${r.at}:${r.type}`, r));
+  const all = [...seen.values()].sort((a, b) => b.at - a.at).slice(0, 100);
+  try { localStorage.setItem(recentKey(), JSON.stringify(all)); } catch { /* storage full: ignore */ }
+  return all;
+}
+
+// Finished / stopped games are only needed while they're open; their documents are deleted from Firebase
+// (the result is already in the recent list). Once per session.
+let cleaned = false;
+async function cleanClosedGames() {
+  if (cleaned) return;
+  cleaned = true;
+  try {
+    const snap = await getDocs(query(collection(db, "games"), where("open", "==", false), limit(400)));
+    if (snap.empty) return;
+    const b = writeBatch(db);
+    snap.docs.forEach(d => b.delete(d.ref));
+    await b.commit();
+  } catch (err) {
+    console.warn("[asaumi] clean games", err);
+  }
+}
+
 /* ------------------------------------------------------------------ sync */
 export function watchGames() {
   G.open = null;
   G.scores = null;
   screen = "lobby";
   prompted.clear();
+  cleaned = false;
   unmountPlay();
   return [
     onSnapshot(query(collection(db, "games"), where("open", "==", true)), snap => {
@@ -102,9 +135,11 @@ export function watchGames() {
       onGame(list[0] || null);
       // only one open game at a time (e.g. both invited at the same moment): close the older ones
       list.slice(1).forEach(g => closeGame(g, "ended"));
+      if (!snap.metadata.fromCache) setTimeout(cleanClosedGames, 6000);
     }, err => console.warn("[asaumi] games", err)),
     onSnapshot(doc(db, "settings", "games"), s => {
       G.scores = s.exists() ? s.data() : {};
+      rememberRecent(G.scores.recent);
       if (play) paintChrome(play);
       scheduleRender();
     }, err => console.warn("[asaumi] game scores", err))
@@ -150,7 +185,7 @@ async function commit(game, fields) {
   b.update(doc(db, "games", game.id), { ...fields, moveNo: game.moveNo + 1, updatedAt: serverTimestamp() });
   if (fields.status === "done" && fields.winner) {
     const s = G.scores || {};
-    const recent = [{ type: game.type, w: fields.winner, at: Date.now() }, ...(s.recent || [])].slice(0, 10);
+    const recent = [{ type: game.type, w: fields.winner, at: Date.now() }, ...(s.recent || [])].slice(0, RECENT_KEEP);
     b.set(doc(db, "settings", "games"), fields.winner === "draw"
       ? { draws: { [game.type]: increment(1) }, recent }
       : { wins: { [fields.winner]: { [game.type]: increment(1) } }, recent }, { merge: true });
@@ -389,7 +424,7 @@ function gameCard(type) {
 }
 
 function recentList() {
-  const r = (G.scores?.recent || []).slice(0, 5);
+  const r = localRecent().slice(0, RECENT_KEEP); // kept up to date by the scores listener
   if (!r.length) return "";
   const me = uid();
   return `

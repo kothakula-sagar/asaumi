@@ -366,6 +366,11 @@ export async function screenshotSupported() {
   try { return !!(await Guard.isSupported()).supported; } catch { return false; } // older APK without the plugin
 }
 export function onScreenshot(cb) { try { Guard?.addListener("screenshot", () => cb()); } catch { /* ignore */ } }
+// true = screenshots / screen recordings blocked (black), false = allowed (Developer mode)
+export async function setScreenSecure(secure) {
+  if (!Guard) return false;
+  try { await Guard.setSecure({ secure }); return true; } catch { return false; }
+}
 
 // Android 12+: "Alarms & reminders" permission makes the 12 AM notification exact
 export async function exactAlarmAllowed() {

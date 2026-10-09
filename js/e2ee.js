@@ -279,9 +279,20 @@ async function doSettle() {
   E.ready = E.enabled && !!E.key;
   if (E.enabled && !mine) {
     // list this device so the other phone can approve it
-    await setDoc(doc(db, "e2eeDevices", E.device.id), { uid: me, pub: E.device.pub, label: deviceLabel(), createdAt: serverTimestamp() });
-    if (E.ready) await updateDoc(doc(db, "e2eeDevices", E.device.id), { approvedBy: E.device.id, approvedAt: serverTimestamp() });
-  } else if (E.ready && mine && !approved(mine)) {
+    try {
+      await setDoc(doc(db, "e2eeDevices", E.device.id), { uid: me, pub: E.device.pub, label: deviceLabel(), createdAt: serverTimestamp() });
+      if (E.ready) await updateDoc(doc(db, "e2eeDevices", E.device.id), { approvedBy: E.device.id, approvedAt: serverTimestamp() });
+      E.regError = "";
+    } catch (err) {
+      console.warn("[asaumi] e2ee register", err);
+      E.regError = err?.code === "permission-denied"
+        ? "This phone couldn't send its request: publish the latest firestore.rules in Firebase (it needs the e2eeDevices section), then reopen the app."
+        : "This phone couldn't send its request yet. Check the internet and reopen the app.";
+    }
+  } else if (mine) {
+    E.regError = "";
+  }
+  if (E.ready && mine && !approved(mine)) {
     await updateDoc(doc(db, "e2eeDevices", E.device.id), { approvedBy: E.device.id, approvedAt: serverTimestamp() });
   }
   if (!wasReady && E.ready) {
@@ -518,6 +529,8 @@ export function e2eeCard() {
         <h3>🔐 End-to-end encryption</h3>
         <p>On, but <b>this device doesn't have the key yet</b>. Open Asaumi on ${esc(partnerName())}'s phone (or your other approved device) and approve the request with this code:</p>
         <div class="e2-code">${esc(codeOf(E.device.pub))}</div>
+        ${E.regError ? `<p class="dev-warn">⚠️ ${esc(E.regError)}</p>`
+          : E.devices.some(d => d.id === E.device.id) ? `<p class="small muted">✓ Request sent. Waiting for ${esc(partnerName())} to approve it in More → End-to-end encryption.</p>` : ""}
         <button class="btn btn-ghost btn-sm" data-action="e2Recovery">Use recovery key instead</button>
       </div>`;
   }
