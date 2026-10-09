@@ -3,7 +3,7 @@ import {
   getAuth, EmailAuthProvider, reauthenticateWithCredential
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager
+  initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, CLOUDINARY } from "./config.js";
 import { isNative, openExternal } from "./native.js";
@@ -346,7 +346,39 @@ export async function prepareImage(file, maxDim = 2400, quality = 0.88) {
   }
 }
 
-export function upload(file, { sub = "", onProgress, signal } = {}) {
+/* Upload once: every file gets a fingerprint (SHA-256 of the ORIGINAL file, before compression). If the same
+   file was uploaded before (sent again in chat, or picked again for a memory), the existing Cloudinary link is
+   reused instead of storing a second copy. mediaIndex/{fingerprint} → link. Files over 25 MB aren't checked. */
+const DEDUPE_MAX = 25 * 1024 * 1024;
+async function fingerprintOf(f) {
+  if (!f || !f.size || f.size > DEDUPE_MAX) return null;
+  try {
+    const buf = await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch { return null; }
+}
+
+// hashOf = the original file when `file` is a compressed copy of it
+export async function upload(file, { sub = "", onProgress, signal, hashOf } = {}) {
+  const hash = await fingerprintOf(hashOf || file);
+  if (hash) {
+    try {
+      const s = await getDoc(doc(db, "mediaIndex", hash));
+      if (s.exists() && s.data().secure_url) { onProgress?.(1); return { ...s.data(), reused: true }; }
+    } catch { /* offline or rules not published: just upload */ }
+  }
+  const data = await uploadToCloudinary(file, { sub, onProgress, signal });
+  if (hash) {
+    setDoc(doc(db, "mediaIndex", hash), {
+      secure_url: data.secure_url, public_id: data.public_id || null, resource_type: data.resource_type || null,
+      width: data.width || null, height: data.height || null, format: data.format || null,
+      bytes: data.bytes || null, duration: data.duration || null, at: serverTimestamp()
+    }).catch(() => { /* already listed, or rules not published */ });
+  }
+  return data;
+}
+
+function uploadToCloudinary(file, { sub = "", onProgress, signal } = {}) {
   return new Promise((resolve, reject) => {
     const fd = new FormData();
     fd.append("file", file);

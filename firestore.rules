@@ -160,6 +160,14 @@ service cloud.firestore {
       allow delete: if isMember();
     }
 
+    // Upload de-duplication: fingerprint (SHA-256) of a file → its Cloudinary link, so the same photo is
+    // never stored twice. Entries can't be changed or deleted, only added.
+    match /mediaIndex/{hash} {
+      allow read: if isMember();
+      allow create: if isMember() && hash.size() == 64 && incoming().secure_url is string;
+      allow update, delete: if false;
+    }
+
     // In-app notifications: sent by one, read only by the receiver
     match /notifications/{id} {
       allow read, delete: if isMember() && resource.data.to == me();

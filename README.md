@@ -68,6 +68,10 @@ To test on your computer, run `python -m http.server 8080` inside this folder an
 - **📸 Screenshot alert (Android 14+).** A screenshot of Asaumi locks the app and tells the other person.
   **Developer mode** (More → Privacy, needs the login password) allows screenshots without alerts; the other person
   is told when it's turned on or off.
+- **🖼️ Photos.** Every photo sent in the chat, side by side (Home card or the Asaumi page). Built from the chat saved
+  on the phone, so no Firebase reads. Memory-only photos aren't included.
+  Uploads are de-duplicated: the same file sent again (or picked again for a memory) reuses the existing Cloudinary
+  link (`mediaIndex` collection, needs the latest `firestore.rules`).
 - **🎮 Our Games.** Ludo (Quick 2-token or Classic 4-token), Snake & Ladder and Tic-Tac-Toe, played live phone-to-phone.
   Invite your person from the Games page (Home card, or the 🎮 button on the Asaumi page); they get a notification and a popup.
   Scores are kept for both of you, the loser gets a little "love task", and you can send emoji reactions while playing.

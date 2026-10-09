@@ -196,7 +196,8 @@ function addMemoryModal(existing = null) {
       while (queue.length) {
         const e = queue.shift();
         const file = e.kind === "image" ? await prepareImage(e.file) : e.file;
-        const up = await upload(file, { sub: "memories", onProgress: p => { prog.set(e, p); tick(); } });
+        // a photo already sent in the chat (or used before) reuses its Cloudinary file
+        const up = await upload(file, { sub: "memories", hashOf: e.file, onProgress: p => { prog.set(e, p); tick(); } });
         Object.assign(e, {
           url: up.secure_url, publicId: up.public_id, width: up.width || e.width || null, height: up.height || e.height || null,
           ...(e.kind === "video" ? { duration: up.duration || null } : {})

@@ -1309,3 +1309,37 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .ce-grid button.on { background: rgba(255, 255, 255, .26); border-color: rgba(255, 255, 255, .85); }
 .ce-grid button:active { transform: scale(.92); }
 .ce-preview { font-size: 18px !important; letter-spacing: 2px; }
+
+/* ---------- Photos (all chat photos, side by side) ---------- */
+.ph-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: -8px 0 6px; }
+.ph-chip { padding: 8px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 800; background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .3); transition: background .15s; }
+.ph-chip.on { color: var(--ink); background: linear-gradient(95deg, #f4ecff, #b8f1fd); border-color: #fff; }
+.ph-month { margin: 18px 2px 8px; font-size: 15px; font-weight: 900; letter-spacing: .3px; color: rgba(255, 255, 255, .9); }
+.ph-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; border-radius: 18px; overflow: hidden; }
+@media (min-width: 560px) { .ph-grid { grid-template-columns: repeat(4, 1fr); } }
+.ph-cell { position: relative; aspect-ratio: 1; overflow: hidden; background: rgba(255, 255, 255, .1); }
+.ph-cell img { width: 100%; height: 100%; object-fit: cover; transition: transform .3s var(--ease); }
+.ph-cell:active img { transform: scale(.94); }
+.ph-more { margin-top: 14px; }
+.ph-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ph-strip button { aspect-ratio: 1; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .35); }
+.ph-strip img { width: 100%; height: 100%; object-fit: cover; }
+.photos-card { background: radial-gradient(120% 90% at 100% 0%, rgba(125, 211, 252, .3), transparent 60%), var(--glass); }
+
+/* gallery viewer */
+.gallery .modal { gap: 10px; }
+.gal { position: relative; display: grid; place-items: center; }
+.gal-stage { display: grid; place-items: center; touch-action: pan-y; }
+.gal-img { max-width: min(92vw, 900px); max-height: 70svh; border-radius: 18px; object-fit: contain; border: 1.5px solid rgba(255, 255, 255, .35); box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+.gal-img.in { animation: fadeIn .25s ease both; }
+.gal-nav {
+  position: absolute; top: 50%; z-index: 2; width: 42px; height: 42px; margin-top: -21px; border-radius: 50%;
+  font-size: 30px; line-height: 1; color: #fff; background: rgba(20, 8, 70, .55); border: 1px solid rgba(255, 255, 255, .35);
+}
+.gal-nav.prev { left: 4px; }
+.gal-nav.next { right: 4px; }
+.gal-info { display: grid; justify-items: center; gap: 2px; text-align: center; }
+.gal-info b { font-size: 14.5px; }
+.gal-info small { color: var(--muted); font-weight: 700; }
+.gal-cap { margin: 0; text-align: center; color: rgba(255, 255, 255, .92); }
+.gal-cap:empty { display: none; }

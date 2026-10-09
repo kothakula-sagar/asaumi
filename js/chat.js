@@ -595,7 +595,7 @@ async function startUpload(p) {
     }
     const file = p.type === "image" ? await prepareImage(p.file) : p.file;
     const up = await upload(file, {
-      sub: "chat", signal: p.abort.signal,
+      sub: "chat", signal: p.abort.signal, hashOf: p.file, // same photo sent again → same Cloudinary file
       onProgress: v => { p.progress = v; updatePendingProgress(p); }
     });
     const media = {
@@ -625,7 +625,7 @@ async function uploadAlbum(p) {
       const i = todo.shift();
       const x = p.items[i];
       const file = x.kind === "image" ? await prepareImage(x.file) : x.file;
-      const up = await upload(file, { sub: "chat", signal: p.abort.signal, onProgress: v => { prog[i] = v; tick(); } });
+      const up = await upload(file, { sub: "chat", signal: p.abort.signal, hashOf: x.file, onProgress: v => { prog[i] = v; tick(); } });
       x.media = {
         kind: x.kind, url: up.secure_url, publicId: up.public_id, resourceType: up.resource_type,
         width: up.width || x.width || null, height: up.height || x.height || null,
