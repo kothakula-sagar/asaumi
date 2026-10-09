@@ -34,6 +34,7 @@ import { initShare, applyShareIfReady } from "./share.js";
 import { autoCheckUpdate } from "./updates.js";
 import { loadArchive, saveMessages, forgetMessages, maintainChat } from "./chatstore.js";
 import { autoBackup, offerRestore } from "./backup.js";
+import { watchGames, checkGameInvite } from "./games.js";
 
 initShare(); // "Share to Asaumi" from other apps
 
@@ -114,6 +115,7 @@ hooks.loadPin = loadPin;
 hooks.onUnlock = () => {
   applyShareIfReady(); // something was shared to Asaumi → open the chat with it
   if (!state.me?.name) askName();
+  setTimeout(checkGameInvite, 400); // a game invite that arrived while locked
   markRead();
   startLocation();
   maybeShowSurprise();
@@ -146,6 +148,7 @@ onBackButton(() => {
   if (top) { if (top.dismissable) top.close(); return; }
   if (document.body.classList.contains("in-call")) return;
   if (state.locked) { state.lockScope === "memories" ? actions.cancelMemoriesLock() : minimizeApp(); return; }
+  if (state.user && views[state.view]?.back?.()) return; // e.g. from a game back to the games list
   if (state.user && state.view !== "home") { go("home", { replace: true }); return; }
   minimizeApp();
 });
@@ -280,6 +283,9 @@ function subscribe() {
     applyBackground();
     scheduleRender();
   }, onErr));
+
+  // 🎮 the open game (normally 0 or 1 document) + scores
+  watchGames().forEach(sub);
 
   // refresh "last seen …" / typing timeouts
   // refresh "last seen", distance, and catch midnight on a birthday while the app is open

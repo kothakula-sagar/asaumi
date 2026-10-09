@@ -60,6 +60,10 @@ To test on your computer, run `python -m http.server 8080` inside this folder an
   Memories lock again when you leave the section or the app goes to the background.
   The PIN is a screen lock. The real protection is the Firestore rules.
   After **3 wrong PINs** the lock screen shows a **30-second countdown** before you can try again.
+- **🎮 Our Games.** Ludo (Quick 2-token or Classic 4-token), Snake & Ladder and Tic-Tac-Toe, played live phone-to-phone.
+  Invite your person from the Games page (Home card, or the 🎮 button on the Asaumi page); they get a notification and a popup.
+  Scores are kept for both of you, the loser gets a little "love task", and you can send emoji reactions while playing.
+  Each move is one small Firestore update (one read per phone). Needs the `games` section of `firestore.rules`.
 - **Fingerprint / screen lock (Android app).** Like PhonePe and GPay, Asaumi first shows the phone's fingerprint prompt,
   with the phone's own PIN / pattern as the backup. If you cancel it or it fails, the app PIN pad is shown instead.
   This works for both opening the app and opening Memories. Turn it off in **More → Privacy → Fingerprint / screen lock**.
