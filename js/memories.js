@@ -13,6 +13,7 @@ import { replyToMemory } from "./chat.js";
 let openAfterUnlock = null; // memory to open once the PIN is entered (tapped from a chat reply)
 import { askMemoriesPin, lockMemories } from "./lock.js";
 import { LIMITS } from "./config.js";
+import { enc } from "./e2ee.js";
 
 const PREVIEW_CHARS = 96;
 
@@ -226,7 +227,8 @@ function addMemoryModal(existing = null) {
         url: cover.kind === "image" ? cover.url : videoPoster(cover.url),
         publicId: cover.publicId, width: cover.width, height: cover.height
       };
-      const data = { ...coverFields, items, title: title.value.trim(), text: text.value.trim() };
+      // 🔐 title and story are encrypted on this phone
+      const data = { ...coverFields, items, title: await enc(title.value.trim()), text: await enc(text.value.trim()) };
       if (editing) {
         await updateDoc(doc(db, "memories", existing.id), { ...data, editedAt: serverTimestamp() });
         m.close();

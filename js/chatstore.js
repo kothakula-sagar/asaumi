@@ -3,12 +3,14 @@
 //  • syncArchive() fetches anything this phone hasn't saved yet (e.g. after days away), then records in
 //    users/{uid}.chatArchivedTo how far this phone's copy goes.
 //  • pruneFirebase() deletes messages older than 10 days from Firebase, but never past what BOTH phones
-//    have saved, so nothing is lost even if one phone wasn't opened for a while.
-// Memories made from chat photos are separate documents and are never touched.
+//    have saved AND what BOTH Google Drive backups contain (users/{uid}.driveBackupTo, set by backup.js),
+//    so nothing is lost even if a phone wasn't opened for a while or is lost later.
+// Only messages are ever removed. Memories, movements, wishes etc. stay in Firebase.
 import {
   collection, query, where, orderBy, limit, startAfter, getDocs, writeBatch, doc, setDoc, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { db, state, uid, toDate } from "./core.js";
+import { decDoc, MSG_FIELDS } from "./e2ee.js";
 
 export const KEEP_DAYS = 10;
 const DAY = 864e5;
@@ -62,7 +64,8 @@ export async function loadArchive() {
 }
 
 export async function saveMessages(list) {
-  const ok = list.filter(m => m.id && !m.pending && toDate(m.createdAt));
+  // stored readable when this phone has the encryption key (otherwise kept encrypted until it gets it)
+  const ok = await Promise.all(list.filter(m => m.id && !m.pending && toDate(m.createdAt)).map(m => decDoc(m, MSG_FIELDS, true)));
   if (!ok.length) return;
   try {
     const d = await open();
@@ -152,8 +155,11 @@ export async function syncArchive() {
 export async function pruneFirebase() {
   const mine = toDate(state.me?.chatArchivedTo)?.getTime();
   const theirs = toDate(state.partner?.chatArchivedTo)?.getTime();
-  if (!mine || !theirs) return 0; // the other phone hasn't saved its copy yet (or runs an older version)
-  const cutoff = Math.min(Date.now() - KEEP_DAYS * DAY - 3600e3, mine, theirs); // 1 h margin for phone clocks
+  const myDrive = toDate(state.me?.driveBackupTo)?.getTime();
+  const theirDrive = toDate(state.partner?.driveBackupTo)?.getTime();
+  // nothing is removed until both phones saved it AND both Google Drive backups contain it
+  if (!mine || !theirs || !myDrive || !theirDrive) return 0;
+  const cutoff = Math.min(Date.now() - KEEP_DAYS * DAY - 3600e3, mine, theirs, myDrive, theirDrive); // 1 h margin for phone clocks
   let removed = 0;
   for (let round = 0; round < 10; round++) {
     const snap = await getDocs(query(collection(db, "messages"), where("createdAt", "<", Timestamp.fromMillis(cutoff)), orderBy("createdAt", "asc"), limit(400)));

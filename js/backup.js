@@ -4,10 +4,12 @@
 //    After reinstalling, "Restore from Google Drive" (also offered right after the first login) brings it back.
 //  • A backup file (fallback): saved to Documents / shared anywhere; "Restore from a file" reads it back.
 // Either person's backup works for restoring: it's the same conversation.
-import { state, uid, esc, ICONS, toast, openModal, spinner, appName, actions, $ } from "./core.js";
-import { isNative, saveTextFile, shareFile, driveSupported } from "./native.js";
+import { doc, setDoc, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { db, state, uid, esc, ICONS, toast, openModal, spinner, appName, partnerName, toDate, actions, $ } from "./core.js";
+import { isNative, saveTextFile, shareFile, driveSupported, showLocal } from "./native.js";
 import { exportArchive, importArchive, syncArchive } from "./chatstore.js";
 import { uploadBackup, findBackup, downloadBackup, driveError } from "./drive.js";
+import { sealBackup, openBackup } from "./e2ee.js";
 
 const FORMAT = "asaumi-chat-backup";
 const AUTO_EVERY = 20 * 3600e3; // automatic Drive backup about once a day
@@ -20,6 +22,14 @@ const whenFmt = ms => new Date(ms).toLocaleString(undefined, { day: "numeric", m
 const useDrive = () => isNative && driveSupported();
 let working = false;
 
+// Whose Google Drive backup is still missing (until both exist, messages simply stay in Firebase)
+function driveStatus() {
+  const mine = toDate(state.me?.driveBackupTo), theirs = toDate(state.partner?.driveBackupTo);
+  if (mine && theirs) return '<p class="small muted">✅ Both of you have Google Drive backups.</p>';
+  const missing = [!mine && "you", !theirs && partnerName()].filter(Boolean).join(" and ");
+  return `<p class="small muted">⏳ Waiting for the first Google Drive backup from ${esc(missing)}. Until then no messages are removed from Firebase.</p>`;
+}
+
 export function backupCard() {
   const lastDrive = Number(store.get("driveBackupAt")) || 0;
   const lastFile = Number(store.get("lastBackup")) || 0;
@@ -27,7 +37,8 @@ export function backupCard() {
   return `
     <div class="glass card">
       <h3>Chat backup</h3>
-      <p>Firebase keeps the last 10 days. Your full chat is saved on this phone. Back it up so it survives a reinstall.</p>
+      <p>Your full chat is saved on this phone and in Google Drive. Messages are removed from Firebase only after they are at least 10 days old <b>and</b> in both of your Google Drive backups. Memories, wishes and everything else stay in Firebase.</p>
+      ${driveStatus()}
       ${useDrive() ? `
         <button class="set-row" data-action="backupToDrive">
           <span class="set-ico">☁️</span>
@@ -62,7 +73,8 @@ export function backupCard() {
 async function buildBackup() {
   try { await syncArchive(); } catch { /* offline: back up what this phone has */ }
   const messages = await exportArchive();
-  const text = JSON.stringify({ format: FORMAT, version: 1, app: appName(), by: uid(), exportedAt: new Date().toISOString(), count: messages.length, messages });
+  // 🔐 with encryption on, the whole backup is encrypted with the couple key (Google can't read it)
+  const text = await sealBackup({ format: FORMAT, version: 1, app: appName(), by: uid(), exportedAt: new Date().toISOString(), count: messages.length, messages });
   return { messages, text };
 }
 
@@ -70,7 +82,11 @@ async function buildBackup() {
 async function restoreText(text) {
   let data;
   try { data = JSON.parse(text); } catch { throw new Error("This isn't an Asaumi chat backup file."); }
-  if (data?.format !== FORMAT || !Array.isArray(data.messages)) throw new Error("This isn't an Asaumi chat backup file.");
+  if (data?.format !== FORMAT) throw new Error("This isn't an Asaumi chat backup file.");
+  if (data.encrypted) {
+    try { data = await openBackup(data); } catch { throw new Error("This backup is encrypted. Open it on a phone that has the encryption key (More → Encryption)."); }
+  }
+  if (!Array.isArray(data?.messages)) throw new Error("This isn't an Asaumi chat backup file.");
   const me = uid();
   const mine = data.messages.filter(x => x && (x.from === me || x.to === me)); // only this conversation
   if (!mine.length) throw new Error("This backup belongs to a different account.");
@@ -101,6 +117,17 @@ async function backupToDrive({ silent = false } = {}) {
     await uploadBackup(text, !silent);
     store.set("driveBackupAt", Date.now());
     store.set("driveOn", 1);
+    // Tell both phones how far this Google Drive backup goes. Messages are removed from Firebase only
+    // when they are in BOTH of your Drive backups (see pruneFirebase in chatstore.js).
+    const newest = Math.max(0, ...messages.map(m => Number(m.createdAt) || 0));
+    if (newest > (toDate(state.me?.driveBackupTo)?.getTime() || 0)) {
+      await setDoc(doc(db, "users", uid()), { driveBackupTo: Timestamp.fromMillis(newest) }, { merge: true })
+        .catch(err => console.warn("[asaumi] drive backup mark", err));
+    }
+    if (silent) {
+      // the automatic daily backup tells you when it's done
+      showLocal(`${appName()} · Chat backed up ✅`, `${messages.length.toLocaleString()} messages saved to Google Drive (${state.user?.email || "your Google account"}).`);
+    }
     if (ui) {
       ui.box.innerHTML = `
         <p class="backup-done">✅ <b>${messages.length.toLocaleString()} messages</b> backed up</p>

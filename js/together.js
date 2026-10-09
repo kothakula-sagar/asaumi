@@ -2,6 +2,7 @@
 // Each phone shares its location only while the app is open and only if that person turned it on.
 import { doc, setDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { db, state, uid, esc, toast, toDate, ago, partnerName, scheduleRender, actions } from "./core.js";
+import { encLocation } from "./e2ee.js";
 
 export const NEAR_METERS = 1000;
 const FRESH_MS = 20 * 60 * 1000;       // ignore positions older than 20 minutes
@@ -55,10 +56,14 @@ function onPosition(p) {
   const moved = lastWrite ? meters(lastWrite, pos) : Infinity;
   if (!lastWrite || moved > 40 || Date.now() - lastWrite.at > WRITE_EVERY_MS) {
     lastWrite = pos;
-    setDoc(doc(db, "locations", uid()), {
+    const spot = {
       lat: Math.round(pos.lat * 1e4) / 1e4, lng: Math.round(pos.lng * 1e4) / 1e4, // ~11 m precision
-      acc: Math.round(pos.acc || 0), at: serverTimestamp()
-    }).catch(err => console.warn("[asaumi] save location", err));
+      acc: Math.round(pos.acc || 0)
+    };
+    // 🔐 encrypted when encryption is on; not shared at all while this phone has no key
+    encLocation(spot)
+      .then(body => body && setDoc(doc(db, "locations", uid()), { ...body, at: serverTimestamp() }))
+      .catch(err => console.warn("[asaumi] save location", err));
   }
 }
 

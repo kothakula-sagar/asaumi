@@ -107,20 +107,15 @@ async function fetchMeta(url, c) {
   if (cached) { meta.set(url, cached); queueMicrotask(() => paint(url)); return; }
   loading.add(url);
   let md = null;
+  // 🔐 Privacy: links are never sent to third-party preview services (they would see what you share).
+  // Only Vimeo's own service is asked, and only for Vimeo links; YouTube shows its thumbnail without a title.
   try {
-    if (c.kind === "youtube") {
-      const r = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${c.id}`)}`);
-      const j = await r.json();
-      if (j?.title) md = { title: j.title, site: j.author_name ? `YouTube · ${j.author_name}` : "YouTube" };
-    } else if (c.kind === "vimeo") {
+    if (c.kind === "vimeo") {
       const r = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(url)}`);
       const j = await r.json();
       if (j?.title) md = { title: j.title, image: j.thumbnail_url, site: "Vimeo" };
-    } else {
-      const r = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`);
-      const j = await r.json();
-      const d = j?.status === "success" ? j.data : null;
-      if (d) md = { title: d.title || hostOf(url), description: d.description || "", image: d.image?.url || d.logo?.url || "", site: d.publisher || hostOf(url) };
+    } else if (c.kind === "youtube") {
+      md = { title: "YouTube video", site: "YouTube" };
     }
   } catch (err) {
     console.warn("[asaumi] link preview", err);

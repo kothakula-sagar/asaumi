@@ -10,6 +10,7 @@ import {
   friendlyError, spinner, appName, scheduleRender, actions, views, $
 } from "./core.js";
 import { notifyPartner } from "./notify.js";
+import { encDoc } from "./e2ee.js";
 import { openLink } from "./linkpreview.js";
 
 const CATS = [
@@ -171,10 +172,11 @@ function wishModal(existing = null) {
     if (!t) { err.textContent = "Write the wish first ✨"; title.focus(); return; }
     const url = normalizeLink(link.value);
     if (url === null) { err.textContent = "That link doesn't look right. Leave it empty or paste a full link."; link.focus(); return; }
-    const data = { title: t, note: note.value.trim(), link: url, cat: $("[name=cat]:checked", m)?.value || "other" };
     save.disabled = true;
     save.innerHTML = spinner("sm dark");
     try {
+      // 🔐 title, note and link are encrypted on this phone
+      const data = await encDoc({ title: t, note: note.value.trim(), link: url, cat: $("[name=cat]:checked", m)?.value || "other" }, ["title", "note", "link"]);
       if (editing) {
         await updateDoc(doc(db, "wishes", existing.id), { ...data, editedAt: serverTimestamp() });
         m.close();

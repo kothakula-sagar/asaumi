@@ -411,7 +411,8 @@ export function openModal(html, { dismissable = true, cls = "" } = {}) {
     wrap.onclose?.();
   };
   if (dismissable) wrap.querySelector(".modal-backdrop").addEventListener("click", wrap.close);
-  $$("[data-close]", wrap).forEach(b => b.addEventListener("click", wrap.close));
+  // any [data-close] button closes the modal, including buttons added later (e.g. "Done" after a backup)
+  wrap.addEventListener("click", e => { if (e.target.closest("[data-close]")) wrap.close(); });
   return wrap;
 }
 

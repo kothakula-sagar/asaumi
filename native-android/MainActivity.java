@@ -12,6 +12,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AppUpdaterPlugin.class);
         registerPlugin(DriveAuthPlugin.class);
         registerPlugin(BiometricLockPlugin.class);
+        registerPlugin(ScreenGuardPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

@@ -35,6 +35,7 @@ import { autoCheckUpdate } from "./updates.js";
 import { loadArchive, saveMessages, forgetMessages, maintainChat } from "./chatstore.js";
 import { autoBackup, offerRestore } from "./backup.js";
 import { watchGames, checkGameInvite } from "./games.js";
+import { startE2ee, checkE2eePrompts, decDoc, decLocation, isEnc, LOCKED, MSG_FIELDS } from "./e2ee.js";
 
 initShare(); // "Share to Asaumi" from other apps
 
@@ -116,6 +117,7 @@ hooks.onUnlock = () => {
   applyShareIfReady(); // something was shared to Asaumi → open the chat with it
   if (!state.me?.name) askName();
   setTimeout(checkGameInvite, 400); // a game invite that arrived while locked
+  setTimeout(checkE2eePrompts, 1800); // encryption: approve a new phone / this phone needs the key
   markRead();
   startLocation();
   maybeShowSurprise();
@@ -124,8 +126,8 @@ hooks.onUnlock = () => {
   setTimeout(autoCheckUpdate, 4000); // "a new version is ready" (Android app only)
   setTimeout(offerRestore, 2500);    // first login on this phone: "Bring back your old chats?" (Google Drive)
   setTimeout(async () => {
-    await maintainChat();            // save chat on this phone, remove >10-day-old messages from Firebase
-    autoBackup();                    // daily Google Drive backup (once Drive was connected)
+    await autoBackup();              // daily Google Drive backup (once Drive was connected)
+    await maintainChat();            // save chat on this phone; remove old messages from Firebase only if both Drive backups have them
   }, 8000);
 };
 
@@ -158,9 +160,27 @@ function onErr(err) {
   if (err?.code === "permission-denied") toast("No access — check the Firestore rules emails.", "error");
 }
 
+/* End-to-end encryption: snapshots are decrypted before they reach the screen. The latest raw list of each
+   listener is kept, so everything is decrypted again once this phone receives the key. */
+const rawLists = {}, decSeq = {};
+function decrypted(key, list, fn, apply) {
+  rawLists[key] = { list, fn, apply };
+  const n = (decSeq[key] = (decSeq[key] || 0) + 1);
+  Promise.all(list.map(fn)).then(out => { if (decSeq[key] === n) apply(out); });
+}
+hooks.redecrypt = () => {
+  Object.entries(rawLists).forEach(([k, v]) => decrypted(k, v.list, v.fn, v.apply));
+  if (liveRaw.length) applyLive(liveRaw, [], true);
+  actions.reloadLocalChat?.();
+};
+const decWith = fields => d => decDoc(d, fields);
+
 function subscribe() {
   const me = state.user.uid;
   const sub = u => state.unsubs.push(u);
+
+  // 🔐 encryption keys first (decrypting waits for them)
+  startE2ee().forEach(sub);
 
   sub(onSnapshot(collection(db, "users"), snap => {
     state.members = Object.fromEntries(snap.docs.map(d => [d.id, { uid: d.id, ...d.data() }]));
@@ -181,18 +201,18 @@ function subscribe() {
   // Home needs only the newest memory and a count (1 read + 1 count read). The full list loads after
   // Memories is unlocked (actions.startMemories), so opening the app doesn't read every memory.
   sub(onSnapshot(query(collection(db, "memories"), orderBy("createdAt", "desc"), limit(1)), snap => {
-    const d = snap.docs[0];
-    state.memLatest = d ? { id: d.id, ...d.data({ serverTimestamps: "estimate" }) } : null;
+    const list = snap.docs.slice(0, 1).map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    decrypted("memLatest", list, decWith(["title", "text"]), out => { state.memLatest = out[0] || null; scheduleRender(); });
     if (!snap.metadata.fromCache && !snap.metadata.hasPendingWrites && !state.loaded.memories) refreshMemCount();
-    scheduleRender();
   }, onErr));
 
   sub(onSnapshot(collection(db, "memorableMovements"), snap => {
-    state.movements = snap.docs
-      .map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))
-      .sort((a, b) => (whenDate(b.when)?.getTime() || 0) - (whenDate(a.when)?.getTime() || 0));
-    state.loaded.movements = true;
-    scheduleRender();
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    decrypted("movements", list, decWith(["text"]), out => {
+      state.movements = out.sort((a, b) => (whenDate(b.when)?.getTime() || 0) - (whenDate(a.when)?.getTime() || 0));
+      state.loaded.movements = true;
+      scheduleRender();
+    });
   }, onErr));
 
   // Wishlist: two listeners, because "personal" wishes are readable only by the person who added them
@@ -208,15 +228,19 @@ function subscribe() {
     state.loaded.wishes = true;
     scheduleRender();
   };
+  const WISH_FIELDS = ["title", "note", "link"];
   sub(onSnapshot(query(collection(db, "wishes"), where("scope", "==", "together")), snap => {
-    wishParts.together = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
-    state.loaded.wishes = true;
-    state.wishError = null;
-    mergeWishes();
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    decrypted("wishesTogether", list, decWith(WISH_FIELDS), out => {
+      wishParts.together = out;
+      state.loaded.wishes = true;
+      state.wishError = null;
+      mergeWishes();
+    });
   }, wishErr));
   sub(onSnapshot(query(collection(db, "wishes"), where("byUid", "==", me)), snap => {
-    wishParts.mine = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
-    mergeWishes();
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    decrypted("wishesMine", list, decWith(WISH_FIELDS), out => { wishParts.mine = out; mergeWishes(); });
   }, wishErr));
 
   sub(onSnapshot(query(collection(db, "calls"), orderBy("createdAt", "desc"), limit(30)), snap => {
@@ -256,9 +280,12 @@ function subscribe() {
   }, onErr));
 
   sub(onSnapshot(collection(db, "locations"), snap => {
-    state.locations = Object.fromEntries(snap.docs.map(d => [d.id, d.data({ serverTimestamps: "estimate" })]));
-    checkNearChange();
-    scheduleRender();
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    decrypted("locations", list, decLocation, out => {
+      state.locations = Object.fromEntries(out.filter(d => d && typeof d.lat === "number").map(d => [d.id, d]));
+      checkNearChange();
+      scheduleRender();
+    });
   }, onErr));
 
   sub(onSnapshot(doc(db, "settings", "relationship"), snap => {
@@ -306,10 +333,13 @@ function refreshMemCount() {
 actions.startMemories = () => {
   if (memUnsub || !state.user) return;
   memUnsub = onSnapshot(query(collection(db, "memories"), orderBy("createdAt", "desc")), snap => {
-    state.memories = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
-    state.memCount = state.memories.length;
-    state.loaded.memories = true;
-    scheduleRender();
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    decrypted("memories", list, decWith(["title", "text"]), out => {
+      state.memories = out;
+      state.memCount = out.length;
+      state.loaded.memories = true;
+      scheduleRender();
+    });
   }, onErr);
   state.unsubs.push(() => { memUnsub?.(); memUnsub = null; });
 };
@@ -321,18 +351,27 @@ let live = [];          // from Firebase
 let archive = [];       // from this phone (chatstore.js), each has archived: true
 let archiveFor = null;
 
+// a message this phone can't decrypt (yet) shows "🔒 Encrypted" and can't be edited
+const showable = m => (isEnc(m.text) || isEnc(m.replyTo?.text)
+  ? { ...m, text: isEnc(m.text) ? LOCKED : m.text, replyTo: m.replyTo && isEnc(m.replyTo.text) ? { ...m.replyTo, text: LOCKED } : m.replyTo, locked: true }
+  : m);
+
 function mergeMessages() {
   const liveIds = new Set(live.map(m => m.id));
   const oldestLive = live.length ? toDate(live[0].createdAt)?.getTime() ?? Infinity : Infinity;
   const older = archive.filter(m => !liveIds.has(m.id) && m.createdAt.getTime() < oldestLive);
-  state.messages = [...older, ...live].slice(-state.msgLimit);
+  state.messages = [...older, ...live].slice(-state.msgLimit).map(showable);
 }
 
 async function loadLocalChat() {
   const me = state.user?.uid;
   if (!me || archiveFor === me) return;
   archiveFor = me;
-  archive = await loadArchive();
+  const saved = await loadArchive();
+  // messages saved while this phone had no key are decrypted now (and saved again readable)
+  archive = await Promise.all(saved.map(m => decDoc(m, MSG_FIELDS, true)));
+  const opened = archive.filter((m, i) => m !== saved[i]);
+  if (opened.length) saveMessages(opened);
   if (state.user?.uid !== me) return;
   mergeMessages();
   if (archive.length) state.loaded.messages = true; // show the saved chat at once, even offline
@@ -348,37 +387,46 @@ function subscribeMessages() {
     query(collection(db, "messages"), orderBy("createdAt", "asc"), limitToLast(LIVE_MESSAGES)),
     { includeMetadataChanges: true },
     snap => {
-      live = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }), pending: d.metadata.hasPendingWrites }));
-      // keep a copy on this phone
-      saveMessages(live);
-      if (!snap.metadata.fromCache && live.length) {
-        // a saved message inside the live range that Firebase no longer has was deleted ("Delete for both")
-        const ids = new Set(live.map(m => m.id));
-        const from = toDate(live[0].createdAt)?.getTime() ?? Infinity;
-        const gone = archive.filter(m => !ids.has(m.id) && m.createdAt.getTime() >= from).map(m => m.id);
-        if (gone.length) { archive = archive.filter(m => !gone.includes(m.id)); forgetMessages(gone); }
-      }
-      // newly seen messages join the local list too, so they stay after Firebase removes them
-      // (and edits replace the saved copy)
-      const byId = new Map(archive.map(m => [m.id, m]));
-      live.filter(m => !m.pending && toDate(m.createdAt))
-        .forEach(m => byId.set(m.id, { ...m, createdAt: toDate(m.createdAt), archived: true }));
-      archive = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
-      mergeMessages();
-      state.loaded.messages = true;
-      if (!first) {
-        snap.docChanges()
-          .filter(c => c.type === "added" && !c.doc.metadata.hasPendingWrites && c.doc.data().from !== state.user.uid)
-          .forEach(c => onIncomingMessage({ id: c.doc.id, ...c.doc.data() }));
-      }
+      const raw = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }), pending: d.metadata.hasPendingWrites }));
+      const added = first ? [] : snap.docChanges()
+        .filter(c => c.type === "added" && !c.doc.metadata.hasPendingWrites && c.doc.data().from !== state.user.uid)
+        .map(c => ({ id: c.doc.id, ...c.doc.data() }));
       first = false;
-      markDelivered();
-      updateChat();
-      scheduleRender();
+      liveRaw = raw;
+      applyLive(raw, added, snap.metadata.fromCache);
     },
     onErr
   );
-  state.unsubs.push(() => { msgUnsub?.(); msgUnsub = null; });
+  state.unsubs.push(() => { msgUnsub?.(); msgUnsub = null; liveRaw = []; });
+}
+
+let liveRaw = [], liveSeq = 0;
+async function applyLive(raw, added = [], fromCache = true) {
+  const n = ++liveSeq;
+  const list = await Promise.all(raw.map(m => decDoc(m, MSG_FIELDS, true)));
+  if (n !== liveSeq || !state.user) return; // a newer snapshot arrived meanwhile
+  live = list;
+  // keep a copy on this phone
+  saveMessages(live);
+  if (!fromCache && live.length) {
+    // a saved message inside the live range that Firebase no longer has was deleted ("Delete for both")
+    const ids = new Set(live.map(m => m.id));
+    const from = toDate(live[0].createdAt)?.getTime() ?? Infinity;
+    const gone = archive.filter(m => !ids.has(m.id) && m.createdAt.getTime() >= from).map(m => m.id);
+    if (gone.length) { archive = archive.filter(m => !gone.includes(m.id)); forgetMessages(gone); }
+  }
+  // newly seen messages join the local list too, so they stay after Firebase removes them
+  // (and edits replace the saved copy)
+  const byId = new Map(archive.map(m => [m.id, m]));
+  live.filter(m => !m.pending && toDate(m.createdAt))
+    .forEach(m => byId.set(m.id, { ...m, createdAt: toDate(m.createdAt), archived: true }));
+  archive = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
+  mergeMessages();
+  state.loaded.messages = true;
+  added.forEach(m => onIncomingMessage(m));
+  markDelivered();
+  updateChat();
+  scheduleRender();
 }
 
 // after "Restore chat": read the phone's saved chat again
@@ -417,7 +465,7 @@ async function fetchOlder(n) {
   const snap = await getDocs(query(collection(db, "messages"),
     where("createdAt", "<", Timestamp.fromDate(oldest)), orderBy("createdAt", "desc"), limit(n)));
   if (snap.size < n) olderDone = true;
-  const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const list = await Promise.all(snap.docs.map(d => decDoc({ id: d.id, ...d.data() }, MSG_FIELDS, true)));
   if (!list.length) return;
   await saveMessages(list);
   const byId = new Map(archive.map(m => [m.id, m]));

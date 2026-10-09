@@ -74,7 +74,8 @@ const PUSH_FOR = {
   missed_call: { page: "home", tag: "call", channel: CHANNELS.calls },
   meal: { page: "home", tag: "meal" },
   wish: { page: "wishlist", tag: "wishlist" },
-  game: { page: "games", tag: "game" }
+  game: { page: "games", tag: "game" },
+  screenshot: { page: "home", tag: "screenshot" }
 };
 
 /* ------------------------------------------------------------------ in-app notifications */
@@ -111,6 +112,8 @@ const NOTIF_META = {
   meal: { icon: "🍽️", nav: "home" },
   wish: { icon: "🎁", nav: "wishlist" },
   game: { icon: "🎮", nav: "games" },
+  screenshot: { icon: "📸", nav: "home" },
+  devmode: { icon: "🛠️", nav: "more" },
   message: { icon: "💬", nav: "chat" }
 };
 

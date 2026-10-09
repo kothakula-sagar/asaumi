@@ -12,6 +12,7 @@ import { stickerPanes, bindStickerPanel, renderOurStickers, saveAsSticker } from
 import { linkPreviewHtml, handleLinkClick } from "./linkpreview.js";
 import { carouselHtml, wireCarousel } from "./carousel.js";
 import { KEEP_DAYS } from "./chatstore.js";
+import { enc, encDoc, MSG_FIELDS } from "./e2ee.js";
 export { renderOurStickers };
 
 const EMOJIS = "❤️ 😘 🥰 😍 😊 😂 🤣 😅 😇 🙈 😴 🥺 😢 😭 😤 😡 🤗 🤔 😌 😋 😎 🤍 💜 💙 💕 💖 💞 💫 ✨ 🌙 ⭐ 🌸 🌹 🌈 ☕ 🍫 🍕 🎶 🎉 🎂 🙏 👍 👌 🤞 👏 🫶 💪 🔥 💯".split(" ");
@@ -298,7 +299,7 @@ function uploadToMemories(id) {
         url: photo.url, publicId: photo.publicId || null,
         width: photo.width || null, height: photo.height || null,
         items: [{ kind: "image", url: photo.url, publicId: photo.publicId || null, width: photo.width || null, height: photo.height || null }],
-        title: title.value.trim(), text: text.value.trim(),
+        title: await enc(title.value.trim()), text: await enc(text.value.trim()),
         byUid: uid(), byName: myName(), createdAt: serverTimestamp(), fromMessage: id
       });
       notifyPartner("memory", notifText("memory"), { refId: ref.id });
@@ -522,8 +523,10 @@ export function onIncomingMessage() {
 /* ------------------------------------------------------------------ sending */
 async function sendMessage(data) {
   if (!state.partner) { toast("Your person hasn't signed in to Asaumi yet."); throw new Error("no partner"); }
+  // 🔐 text, captions and reply previews are encrypted on this phone before they leave it
+  const sealed = await encDoc(data, MSG_FIELDS);
   const ref = await addDoc(collection(db, "messages"), {
-    ...data, from: uid(), to: state.partner.uid, createdAt: serverTimestamp()
+    ...sealed, from: uid(), to: state.partner.uid, createdAt: serverTimestamp()
   });
   pushPartner({ body: notifText("message"), page: "chat", tag: "chat" });
   return ref;
@@ -1148,7 +1151,7 @@ function editMessage(m) {
     if (text === (m.text || "")) { modal.close(); return; }
     save.disabled = true;
     try {
-      await updateDoc(doc(db, "messages", m.id), { text, editedAt: serverTimestamp() });
+      await updateDoc(doc(db, "messages", m.id), { text: await enc(text), editedAt: serverTimestamp() });
       if (m.archived) actions.patchLocalMessage?.(m.id, { text, editedAt: new Date() });
       modal.close();
     } catch (e) {
@@ -1173,8 +1176,8 @@ function openMessageMenu(id) {
     <div class="msg-menu">
       <button data-m="reply">${ICONS.reply}<span>Reply</span></button>
       ${(m.type === "sticker" || shown?.kind === "image") && shown?.url ? `<button data-m="sticker">${ICONS.sparkle}<span>Save as sticker</span></button>` : ""}
-      ${mine && !local && m.type !== "voice" && m.type !== "sticker" ? `<button data-m="edit">${ICONS.pencil}<span>${m.type === "text" ? "Edit" : m.text ? "Edit caption" : "Add caption"}</span></button>` : ""}
-      ${m.text ? `<button data-m="copy">${ICONS.copy}<span>Copy text</span></button>` : ""}
+      ${mine && !local && !m.locked && m.type !== "voice" && m.type !== "sticker" ? `<button data-m="edit">${ICONS.pencil}<span>${m.type === "text" ? "Edit" : m.text ? "Edit caption" : "Add caption"}</span></button>` : ""}
+      ${m.text && !m.locked ? `<button data-m="copy">${ICONS.copy}<span>Copy text</span></button>` : ""}
       ${local ? `<button data-m="forget" class="danger">${ICONS.trash}<span>Delete from this phone</span></button>`
         : mine ? `<button data-m="delete" class="danger">${ICONS.trash}<span>Delete for both</span></button>` : ""}
     </div>

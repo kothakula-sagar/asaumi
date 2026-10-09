@@ -55,7 +55,9 @@ const manifestPath = path.join(appDir, "src", "main", "AndroidManifest.xml");
     // More → App updates: install the downloaded update (Android asks the person once)
     "android.permission.REQUEST_INSTALL_PACKAGES",
     // App lock with fingerprint / phone screen lock
-    "android.permission.USE_BIOMETRIC"
+    "android.permission.USE_BIOMETRIC",
+    // Screenshot alert (Android 14+; no prompt, granted at install)
+    "android.permission.DETECT_SCREEN_CAPTURE"
   ];
   const addPerms = perms.filter(p => !m.includes(`"${p}"`)).map(p => `    <uses-permission android:name="${p}" />`);
   const features = [

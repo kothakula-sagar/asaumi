@@ -6,6 +6,7 @@ import {
   fmtFullDate, fmtLongDate, fmtTime, fmtDateTime, realNameOf, friendlyError, spinner, notifText, actions, $
 } from "./core.js";
 import { notifyPartner } from "./notify.js";
+import { enc } from "./e2ee.js";
 
 export function movementCard(m) {
   const d = whenDate(m.when);
@@ -70,13 +71,13 @@ function addMovementModal(existing = null) {
     save.innerHTML = spinner("sm dark");
     try {
       if (existing) {
-        await updateDoc(doc(db, "memorableMovements", existing.id), { text: text.value.trim(), when: when.value, editedAt: serverTimestamp() });
+        await updateDoc(doc(db, "memorableMovements", existing.id), { text: await enc(text.value.trim()), when: when.value, editedAt: serverTimestamp() });
         m.close();
         toast("Memorable Movement updated ❤️");
         return;
       }
       const ref = await addDoc(collection(db, "memorableMovements"), {
-        text: text.value.trim(), when: when.value,
+        text: await enc(text.value.trim()), when: when.value,
         byUid: uid(), byName: myName(), createdAt: serverTimestamp()
       });
       notifyPartner("movement", notifText("movement"), { refId: ref.id });

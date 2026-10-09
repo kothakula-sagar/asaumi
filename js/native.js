@@ -345,6 +345,28 @@ export async function scheduleBirthday(at, { title, body }) {
   }
 }
 
+// A notification shown right now on this phone (e.g. "Chat backed up"). Never asks for permission.
+export async function showLocal(title, body, { id = 7202, page = "more" } = {}) {
+  if (!Local) return false;
+  try {
+    if ((await Local.checkPermissions()).display !== "granted") return false;
+    await Local.createChannel({ id: "asaumi_info", name: "Backups & info", description: "Chat backup finished and similar", importance: 3, visibility: 0 });
+    await Local.schedule({ notifications: [{ id, title, body, channelId: "asaumi_info", smallIcon: "ic_stat_icon", extra: { page } }] });
+    return true;
+  } catch (err) {
+    console.warn("[asaumi] local notification", err);
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------ screenshot alert (native-android/ScreenGuardPlugin.java, Android 14+) */
+const Guard = plugin("ScreenGuard");
+export async function screenshotSupported() {
+  if (!Guard) return false;
+  try { return !!(await Guard.isSupported()).supported; } catch { return false; } // older APK without the plugin
+}
+export function onScreenshot(cb) { try { Guard?.addListener("screenshot", () => cb()); } catch { /* ignore */ } }
+
 // Android 12+: "Alarms & reminders" permission makes the 12 AM notification exact
 export async function exactAlarmAllowed() {
   if (!Local) return true;
