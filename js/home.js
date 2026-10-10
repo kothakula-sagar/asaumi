@@ -13,6 +13,7 @@ import { birthdayBanner } from "./birthday.js";
 import { wishlistCard } from "./wishlist.js";
 import { gamesCard } from "./games.js";
 import { photosCard } from "./photos.js";
+import { thoughtsToday } from "./thinking.js";
 
 function greeting() {
   const h = new Date().getHours();
@@ -40,6 +41,15 @@ function lastCallLine() {
   return `${kind} call · ${out ? "no answer" : c.status} · ${shortWhen(c.createdAt)}`;
 }
 
+// 💭 today's "thinking of you" counts, under the greeting
+function thoughtLine(p) {
+  const got = thoughtsToday(p.uid), sent = thoughtsToday(uid());
+  const text = got
+    ? `💭 ${partnerName()} thought of you ${got === 1 ? "once" : `${got}×`} today${sent ? ` · you: ${sent}×` : ""}`
+    : sent ? `💭 You thought of ${partnerName()} ${sent === 1 ? "once" : `${sent}×`} today` : "💭 Tap the ❤️ to say you're thinking of them";
+  return `<p class="think-line">${esc(text)}</p>`;
+}
+
 function renderHome() {
   const p = state.partner;
   const last = state.messages.at(-1);
@@ -55,7 +65,7 @@ function renderHome() {
     <section class="home-hero">
       <div class="couple">
         ${avatarHtml(state.me || { name: myName() }, "lg")}
-        <span class="couple-heart">❤️</span>
+        <button class="couple-heart think-btn" data-action="thinkOfYou" aria-label="Send a thinking-of-you heart">❤️</button>
         <span class="avatar-wrap">${avatarHtml(p || { name: "?" }, "lg")}${p ? presenceDot(p.uid) : ""}</span>
       </div>
       <div class="home-hero-text">
@@ -64,6 +74,7 @@ function renderHome() {
         <p class="presence-line ${p && isOnline(p.uid) ? "on" : ""}">
           ${p ? `<i></i>${esc(partnerName())} · ${esc(statusText(p.uid))}` : "Waiting for your person to sign in ❤️"}
         </p>
+        ${p ? thoughtLine(p) : ""}
       </div>
     </section>
 
@@ -152,7 +163,7 @@ function renderAsaumi() {
     <section class="glass us-hero">
       <div class="us-couple">
         ${avatarHtml(state.me || { name: myName() }, "xl")}
-        <span class="us-heart">❤️</span>
+        <button class="us-heart think-btn" data-action="thinkOfYou" aria-label="Send a thinking-of-you heart">❤️</button>
         <span class="avatar-wrap">${avatarHtml(p || { name: "?" }, "xl")}${p ? presenceDot(p.uid) : ""}</span>
       </div>
       <h1>❤️ ${esc(appName())}</h1>

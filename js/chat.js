@@ -1,5 +1,5 @@
 import {
-  doc, collection, addDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch, getDocs, query, where, limit
+  doc, collection, addDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch, getDocs, query, where, limit, deleteField
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   db, state, uid, myName, esc, ICONS, toast, openModal, confirmDialog, viewImage, avatarHtml, presenceDot,
@@ -12,7 +12,7 @@ import { stickerPanes, bindStickerPanel, renderOurStickers, saveAsSticker } from
 import { linkPreviewHtml, handleLinkClick } from "./linkpreview.js";
 import { carouselHtml, wireCarousel } from "./carousel.js";
 import { KEEP_DAYS } from "./chatstore.js";
-import { enc, encDoc, MSG_FIELDS } from "./e2ee.js";
+import { enc, encDoc, isEnc, MSG_FIELDS } from "./e2ee.js";
 import { inCall, showCallMessage } from "./call.js";
 export { renderOurStickers };
 
@@ -35,6 +35,7 @@ export function mountChat() {
       <header class="chat-head glass">
         <button class="icon-btn ghost chat-back" data-nav="home" aria-label="Back">${ICONS.back}</button>
         <div class="chat-who" id="chat-who"></div>
+        <button class="icon-btn ghost" data-action="openChatSearch" aria-label="Search the chat">${ICONS.search}</button>
         <button class="icon-btn" data-action="startCall" data-kind="audio" aria-label="Audio call">${ICONS.phone}</button>
         <button class="icon-btn" data-action="startCall" data-kind="video" aria-label="Video call">${ICONS.video}</button>
       </header>
@@ -136,9 +137,74 @@ export function mountChat() {
     if (quote) { jumpTo(quote.dataset.jump); return; }
     const toMem = e.target.closest("[data-to-mem]");
     if (toMem) { uploadToMemories(toMem.dataset.toMem); return; }
+    const rx = e.target.closest("[data-rx-of]");
+    if (rx) { openMessageMenu(rx.dataset.rxOf); return; }
     const img = e.target.closest("[data-view-img]");
-    if (img) viewImage(img.dataset.viewImg, "asaumi-photo");
+    if (img) { viewImage(img.dataset.viewImg, "asaumi-photo"); return; }
+    // double-tap a text bubble → ❤️ (photos/videos keep their single tap)
+    const bubble = e.target.closest(".bubble");
+    const row = bubble && !e.target.closest("video, .voice, .quote, .lp, .carousel") && e.target.closest('.msg-row[data-kind="msg"]');
+    if (!row) return;
+    const now = Date.now();
+    if (lastTap.id === row.dataset.id && now - lastTap.at < 320) {
+      lastTap = { id: null, at: 0 };
+      const m = state.messages.find(x => x.id === row.dataset.id);
+      if (m && canReact(m) && m.reactions?.[uid()] !== "❤️") { setReaction(m, "❤️"); heartPop(row); }
+    } else {
+      lastTap = { id: row.dataset.id, at: now };
+    }
   }, true);
+}
+
+/* ------------------------------------------------------------------ reactions */
+// One reaction per person per message, stored as reactions.{uid} (encrypted like the text).
+const REACTIONS = ["❤️", "😂", "😮", "😢", "🙏", "👍"];
+let lastTap = { id: null, at: 0 };
+
+// only messages still in Firebase can get reactions (not pending, not the >10-day ones saved only on this phone)
+const canReact = m => !!m && !m.pending && !m.locked &&
+  !(m.archived && Date.now() - (toDate(m.createdAt)?.getTime() || 0) > KEEP_DAYS * 864e5);
+
+function reactionsHtml(m) {
+  const list = Object.entries(m.reactions || {}).filter(([, v]) => typeof v === "string" && v && !isEnc(v));
+  if (!list.length) return "";
+  const counts = new Map();
+  for (const [, e] of list) counts.set(e, (counts.get(e) || 0) + 1);
+  const mine = list.some(([u]) => u === uid());
+  return `<button type="button" class="rx ${mine ? "mine" : ""}" data-rx-of="${esc(m.id)}" aria-label="Reactions">${[...counts].map(([e, n]) => `<span>${e}${n > 1 ? `<b>${n}</b>` : ""}</span>`).join("")}</button>`;
+}
+
+async function setReaction(m, emoji) {
+  if (!canReact(m)) return;
+  const me = uid();
+  const removing = m.reactions?.[me] === emoji;
+  try {
+    await updateDoc(doc(db, "messages", m.id), { [`reactions.${me}`]: removing ? deleteField() : await enc(emoji) });
+    if (m.archived) { // outside the live 60: update the phone's copy too
+      const next = { ...(m.reactions || {}) };
+      if (removing) delete next[me]; else next[me] = emoji;
+      actions.patchLocalMessage?.(m.id, { reactions: next });
+    }
+    navigator.vibrate?.(10);
+    if (!removing && m.from !== me) pushPartner({ body: `${myName()} reacted to your message`, page: "chat", tag: "chat" });
+  } catch (err) {
+    toast(err?.code === "permission-denied" ? "Reactions need the latest firestore.rules (publish them in Firebase)." : friendlyError(err, "Couldn't react. Try again."));
+  }
+}
+
+function heartPop(row) {
+  const h = document.createElement("span");
+  h.className = "rx-pop";
+  h.textContent = "❤️";
+  h.addEventListener("animationend", () => h.remove());
+  row.querySelector(".msg")?.append(h);
+}
+
+// the other person reacted to one of my messages (called by app.js)
+export function onPartnerReaction(m, emoji) {
+  if (state.view === "chat" && !document.hidden && !state.locked) return; // they see it right away
+  ping();
+  if (!document.hidden) toast(`${partnerName()} reacted ${emoji} to “${(previewOf(m) || "your message").slice(0, 40)}”`);
 }
 
 /* ------------------------------------------------------------------ scrolling */
@@ -242,6 +308,7 @@ function itemHtml(it, showDate) {
         ${quoteHtml(it.replyTo)}
         ${contentHtml(it)}
         <div class="meta">${it.editedAt ? '<span class="edited">edited</span>' : ""}<span>${fmtTime(it.createdAt)}</span>${mine ? `<span class="status">${statusHtml(it)}</span>` : ""}</div>
+        ${reactionsHtml(it)}
       </div>
       ${it.media?.url && slidesOf(it).some(s => s.kind === "image") ? toMemoryButton(it.id, curSlide(it)) : ""}
     </div>`;
@@ -351,7 +418,7 @@ export function updateChat() {
     const showDate = !prevDate || !sameDay(prevDate, d);
     prevDate = d;
     seen.add(it.id);
-    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.media?.items?.length}|${it.status}|${it.duration}|${it.replyTo?.id}|${!!it.editedAt}|${slidesOf(it).map(s => (inMemories(s.url) ? 1 : 0)).join("")}|${Math.floor(d.getTime() / 60000)}`;
+    const sig = `${showDate}|${it.kind}|${it.type}|${it.text}|${it.media?.url}|${it.media?.items?.length}|${it.status}|${it.duration}|${it.replyTo?.id}|${!!it.editedAt}|${JSON.stringify(it.reactions || {})}|${slidesOf(it).map(s => (inMemories(s.url) ? 1 : 0)).join("")}|${Math.floor(d.getTime() / 60000)}`;
     let r = rendered.get(it.id);
     if (!r || r.sig !== sig) {
       const el = document.createElement("div");
@@ -537,6 +604,8 @@ async function sendMessage(data) {
 
 // used by the call screen to send a quick message / emoji
 actions.sendQuickText = text => sendMessage({ type: "text", text });
+// used by search: scroll to a message and flash it
+actions.jumpToMessage = id => jumpTo(id);
 
 let keepKeyboard = false;
 
@@ -1177,7 +1246,9 @@ function openMessageMenu(id) {
   // copy ("Load earlier messages") are still in Firebase, so they can be edited and deleted for both.
   const local = !!m.archived && Date.now() - (toDate(m.createdAt)?.getTime() || 0) > KEEP_DAYS * 864e5;
   const shown = m.type === "sticker" ? m.media : curSlide(m); // in an album: the photo on screen
+  const myRx = m.reactions?.[uid()];
   const modal = openModal(`
+    ${canReact(m) ? `<div class="rx-pick">${REACTIONS.map(e => `<button type="button" data-react="${e}" class="${myRx === e ? "on" : ""}" aria-label="React ${e}">${e}</button>`).join("")}</div>` : ""}
     <div class="menu-preview">${esc(previewOf(m) || "Message")}</div>
     <div class="msg-menu">
       <button data-m="reply">${ICONS.reply}<span>Reply</span></button>
@@ -1188,6 +1259,12 @@ function openMessageMenu(id) {
         : mine ? `<button data-m="delete" class="danger">${ICONS.trash}<span>Delete for both</span></button>` : ""}
     </div>
     <button class="btn btn-ghost btn-block" data-close>Cancel</button>`, { cls: "action-sheet" });
+  modal.querySelector(".rx-pick")?.addEventListener("click", e => {
+    const b = e.target.closest("[data-react]");
+    if (!b) return;
+    modal.close();
+    setReaction(m, b.dataset.react);
+  });
   modal.querySelector(".msg-menu").addEventListener("click", async e => {
     const b = e.target.closest("[data-m]");
     if (!b) return;

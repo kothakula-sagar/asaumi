@@ -21,7 +21,7 @@ import { isNative } from "./native.js";
 
 const PREFIX = "e1:";
 export const LOCKED = "🔒 Encrypted";
-export const MSG_FIELDS = ["text", "replyTo.text"];
+export const MSG_FIELDS = ["text", "replyTo.text", "reactions.*"];
 export const isEnc = s => typeof s === "string" && s.startsWith(PREFIX);
 
 export const E = {
@@ -171,6 +171,15 @@ export async function decDoc(d, fields, keep = false) {
   let out = d;
   for (const f of fields) {
     const [a, b] = f.split(".");
+    if (b === "*") { // every value of a map, e.g. reactions: { uid: emoji }
+      const map = d[a];
+      if (!map || typeof map !== "object" || !Object.values(map).some(isEnc)) continue;
+      const next = {};
+      for (const [k, v] of Object.entries(map)) next[k] = isEnc(v) ? (await dec(v)) ?? (keep ? v : null) : v;
+      if (out === d) out = { ...d };
+      out[a] = Object.fromEntries(Object.entries(next).filter(([, v]) => v != null));
+      continue;
+    }
     const v = b ? d[a]?.[b] : d[a];
     if (!isEnc(v)) continue;
     const p = await dec(v);
@@ -186,7 +195,13 @@ export async function encDoc(d, fields) {
   const out = { ...d };
   for (const f of fields) {
     const [a, b] = f.split(".");
-    if (b) { if (out[a] && typeof out[a][b] === "string") out[a] = { ...out[a], [b]: await enc(out[a][b]) }; }
+    if (b === "*") {
+      if (out[a] && typeof out[a] === "object") {
+        const next = {};
+        for (const [k, v] of Object.entries(out[a])) next[k] = typeof v === "string" ? await enc(v) : v;
+        out[a] = next;
+      }
+    } else if (b) { if (out[a] && typeof out[a][b] === "string") out[a] = { ...out[a], [b]: await enc(out[a][b]) }; }
     else if (typeof out[a] === "string") out[a] = await enc(out[a]);
   }
   return out;

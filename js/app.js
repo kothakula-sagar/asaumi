@@ -17,7 +17,7 @@ import {
   startPresence, stopPresence, unreadNotifications, unreadMessages, announceNotification, registerPush, unregisterPush
 } from "./notify.js";
 import { isNative, onNotificationTap, clearDelivered, onBackButton, onResume, minimizeApp, retryPushIfNeeded } from "./native.js";
-import { mountChat, updateChat, markDelivered, markRead, onIncomingMessage, resetChat, renderOurStickers } from "./chat.js";
+import { mountChat, updateChat, markDelivered, markRead, onIncomingMessage, onPartnerReaction, resetChat, renderOurStickers } from "./chat.js";
 import { watchIncoming, stopWatchingIncoming } from "./call.js";
 import "./memories.js";
 import { renderLock, resetPin } from "./lock.js";
@@ -37,6 +37,8 @@ import { autoBackup, offerRestore } from "./backup.js";
 import { watchGames, checkGameInvite } from "./games.js";
 import { startE2ee, checkE2eePrompts, decDoc, decLocation, isEnc, LOCKED, MSG_FIELDS } from "./e2ee.js";
 import { applyScreenPolicy } from "./screenguard.js";
+import { checkThoughts, resetThoughts } from "./thinking.js";
+import "./search.js";
 
 initShare(); // "Share to Asaumi" from other apps
 
@@ -53,7 +55,7 @@ onAuthStateChanged(auth, async user => {
   if (!user) {
     stopWatchingIncoming();
     resetChat();
-    live = []; archive = []; archiveFor = null; olderDone = false; callsTrimmed = false; // the saved chat stays on the phone for the next login
+    live = []; archive = []; archiveFor = null; olderDone = false; callsTrimmed = false; rxSeen = null; resetThoughts(); // the saved chat stays on the phone for the next login
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: LIVE_MESSAGES, loaded: {},
       memories: [], memLatest: null, memCount: null, movements: [], calls: [], notifications: [], background: null, pinHash: null, wishes: [], wishError: null,
@@ -196,6 +198,7 @@ function subscribe() {
 
   sub(onSnapshot(collection(db, "presence"), snap => {
     state.presence = Object.fromEntries(snap.docs.map(d => [d.id, d.data({ serverTimestamps: "estimate" })]));
+    checkThoughts(); // 💭 "thinking of you" from the other person
     scheduleRender();
   }, onErr));
 
@@ -412,11 +415,39 @@ const showable = m => (isEnc(m.text) || isEnc(m.replyTo?.text)
   ? { ...m, text: isEnc(m.text) ? LOCKED : m.text, replyTo: m.replyTo && isEnc(m.replyTo.text) ? { ...m.replyTo, text: LOCKED } : m.replyTo, locked: true }
   : m);
 
-function mergeMessages() {
+function allMessages() {
   const liveIds = new Set(live.map(m => m.id));
   const oldestLive = live.length ? toDate(live[0].createdAt)?.getTime() ?? Infinity : Infinity;
   const older = archive.filter(m => !liveIds.has(m.id) && m.createdAt.getTime() < oldestLive);
-  state.messages = [...older, ...live].slice(-state.msgLimit).map(showable);
+  return [...older, ...live];
+}
+function mergeMessages() {
+  state.messages = allMessages().slice(-state.msgLimit).map(showable);
+}
+
+// 🔍 search result tapped: make sure that message is in the chat list (from this phone, no reads), then jump to it
+actions.revealMessage = id => {
+  const all = allMessages();
+  const i = all.findIndex(m => m.id === id);
+  if (i < 0) { toast("That message isn't on this phone anymore."); return; }
+  const need = all.length - i + 15;
+  if (need > state.msgLimit) { state.msgLimit = need; mergeMessages(); }
+  updateChat();
+  requestAnimationFrame(() => requestAnimationFrame(() => actions.jumpToMessage?.(id)));
+};
+
+// the other person reacted to one of my messages → small notice (not on the first load)
+let rxSeen = null; // message id → partner's reaction
+function checkPartnerReactions(list) {
+  const me = state.user?.uid, other = state.partner?.uid;
+  const now = new Map(list.filter(m => m.from === me).map(m => [m.id, m.reactions?.[other] || ""]));
+  if (rxSeen && other) {
+    for (const m of list) {
+      const e = now.get(m.id);
+      if (e && !isEnc(e) && rxSeen.has(m.id) && rxSeen.get(m.id) !== e) onPartnerReaction(showable(m), e);
+    }
+  }
+  rxSeen = now;
 }
 
 async function loadLocalChat() {
@@ -462,6 +493,7 @@ async function applyLive(raw, added = [], fromCache = true) {
   const list = await Promise.all(raw.map(m => decDoc(m, MSG_FIELDS, true)));
   if (n !== liveSeq || !state.user) return; // a newer snapshot arrived meanwhile
   live = list;
+  checkPartnerReactions(list);
   // keep a copy on this phone
   saveMessages(live);
   if (!fromCache && live.length) {
