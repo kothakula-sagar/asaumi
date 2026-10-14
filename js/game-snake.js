@@ -1,8 +1,14 @@
-// 🐍 Snake & Ladder. 100 squares; land exactly on 100 to win (a bigger roll bounces back).
-// state: { pos: { uid: 0..100 } }   0 = not on the board yet
+// 🐍 Snake & Ladder, made to finish within 5 minutes:
+//  • more and longer "love ladders", fewer snakes; reaching or passing 100 wins (no exact number needed)
+//  • rolling a 6 gives another roll
+//  • a 5-minute clock starts with the first roll; when it runs out, whoever is furthest ahead wins
+// state: { pos: { uid: 0..100 }, endsAt: ms | null }   0 = not on the board yet
 // last:  { by, roll, from, land, to } → the other phone replays the same walk, ladder or snake
-const LADDERS = { 4: 25, 13: 46, 33: 49, 42: 63, 50: 69, 62: 81, 74: 92 };
-const SNAKES = { 27: 5, 40: 3, 43: 18, 54: 31, 66: 45, 76: 58, 89: 53, 99: 41 };
+//        { kind: "timeup" } → the clock ran out
+const LADDERS = { 2: 23, 6: 45, 11: 31, 20: 59, 28: 54, 36: 75, 47: 68, 51: 91, 63: 84, 71: 93, 80: 98 };
+const SNAKES = { 43: 17, 56: 34, 66: 46, 88: 69, 95: 74, 99: 79 };
+const GAME_MS = 5 * 60 * 1000;
+const STEP_MS = 120; // walking speed per square
 const SNAKE_COLORS = [["#34d399", "#059669"], ["#f472b6", "#be185d"], ["#fbbf24", "#d97706"], ["#a78bfa", "#6d28d9"]];
 const HEARTS = new Set([7, 19, 36, 58, 71, 85, 97]); // little decorations
 
@@ -77,9 +83,9 @@ export default {
   type: "snake",
   name: "Snake & Ladder",
   emoji: "🐍",
-  desc: "Climb the love ladders, dodge the snakes. First to 100 wins 👑",
+  desc: "Climb the love ladders, dodge the snakes. 5-minute game: first to 100, or furthest ahead, wins 👑",
   init(players, opts, starter) {
-    return { state: { pos: { [players[0]]: 0, [players[1]]: 0 } }, turn: starter };
+    return { state: { pos: { [players[0]]: 0, [players[1]]: 0 }, endsAt: null }, turn: starter };
   },
   badge: (g, u) => {
     const n = g.state?.pos?.[u] || 0;
@@ -92,10 +98,12 @@ export default {
       <div class="dice-row">
         <button class="dice" data-roll aria-label="Roll the dice" disabled>${ctx.dice.html(1)}</button>
         <p class="gm-hint" data-hint></p>
-      </div>`;
+      </div>
+      <p class="snl-clock" data-clock></p>`;
     const layer = board.querySelector(".snl-tokens");
     const dice = controls.querySelector("[data-roll]");
     const hint = controls.querySelector("[data-hint]");
+    const clock = controls.querySelector("[data-clock]");
     const g0 = ctx.game();
     const toks = {};
     const cur = {};
@@ -127,36 +135,55 @@ export default {
       const g = ctx.game(), me = ctx.me;
       const roll = ctx.rollValue();
       const from = g.state.pos[me] || 0;
-      let land = from + roll;
-      if (land > 100) land = 200 - land; // bounce back from 100
+      const land = Math.min(100, from + roll); // reaching or passing 100 wins
       const to = LADDERS[land] || SNAKES[land] || land;
-      const win = to === 100;
+      const win = to >= 100;
       ctx.move({
-        state: { pos: { ...g.state.pos, [me]: to } },
-        turn: win ? me : ctx.other,
+        state: { ...g.state, pos: { ...g.state.pos, [me]: to }, endsAt: g.state.endsAt || Date.now() + GAME_MS },
+        turn: win || roll === 6 ? me : ctx.other, // a 6 = roll again
         last: { by: me, roll, from, land, to },
         ...(win ? { status: "done", winner: me } : {})
       });
     });
 
+    // ⏱ 5-minute clock (whichever phone sees it run out first ends the game; the other's write is refused)
+    let endedFor = -1;
+    const fmt = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+    function tickClock() {
+      const g = ctx.game(), endsAt = g.state?.endsAt;
+      if (g.status !== "active") { clock.textContent = ""; return; }
+      if (!endsAt) { clock.textContent = "⏱ 5:00 · the clock starts with the first roll"; clock.classList.remove("hurry"); return; }
+      const left = endsAt - Date.now();
+      clock.textContent = `⏱ ${fmt(left)} left`;
+      clock.classList.toggle("hurry", left <= 30000);
+      // a little grace for the phone whose turn it isn't, so both don't try at the same instant
+      if (left <= (g.turn === ctx.me ? 0 : -1500) && endedFor !== g.moveNo) {
+        endedFor = g.moveNo;
+        const [a, b] = g.players, pa = g.state.pos[a] || 0, pb = g.state.pos[b] || 0;
+        ctx.end({ status: "done", winner: pa === pb ? "draw" : pa > pb ? a : b, last: { kind: "timeup" } });
+      }
+    }
+    tickClock();
+    const clockTimer = setInterval(tickClock, 1000);
+
     return {
       async update(g, prev, animate) {
         const last = g.last;
-        if (animate && last) {
+        if (last?.kind === "timeup") {
+          if (animate) ctx.say("⏰ 5 minutes up! Furthest ahead wins 👑");
+        } else if (animate && last) {
           const by = last.by, mine = by === ctx.me;
           dice.dataset.c = ctx.color(by);
           await ctx.dice.roll(dice, last.roll);
           // walk square by square (bouncing back from 100 if needed)
           const tok = toks[by];
           tok.classList.add("walking");
-          for (let i = 1; i <= last.roll; i++) {
-            const s = last.from + i;
-            cur[by] = s > 100 ? 200 - s : s;
+          for (let i = 1; i <= last.land - last.from; i++) {
+            cur[by] = last.from + i;
             layout();
-            await ctx.sleep(190);
+            await ctx.sleep(STEP_MS);
           }
           tok.classList.remove("walking");
-          if (last.from + last.roll > 100) ctx.say("Bounced back! You need the exact number 😅");
           if (last.to !== last.land) {
             const up = last.to > last.land;
             await ctx.sleep(180);
@@ -166,15 +193,17 @@ export default {
             tok.classList.add(up ? "climb" : "slide");
             cur[by] = last.to;
             layout();
-            await ctx.sleep(760);
+            await ctx.sleep(620);
             tok.classList.remove("climb", "slide");
           }
+          if (last.roll === 6 && g.status === "active") ctx.say(mine ? "🎲 A six! Roll again ✨" : `🎲 ${ctx.name(by)} rolled a six, again!`);
         } else if (last?.roll) {
           dice.querySelector(".dice-face").dataset.v = String(last.roll);
         }
         for (const u of g.players) cur[u] = g.state.pos[u] || 0;
         layout();
         if (animate && g.status === "done") await ctx.sleep(300);
+        tickClock();
       },
       setEnabled(on) {
         dice.disabled = !on;
@@ -182,7 +211,8 @@ export default {
         if (on) dice.dataset.c = ctx.color(ctx.me);
         const g = ctx.game();
         hint.textContent = g.status !== "active" ? "" : on ? "Your turn! Tap the dice 🎲" : `${ctx.name(ctx.other)} is rolling… 💭`;
-      }
+      },
+      destroy() { clearInterval(clockTimer); }
     };
   }
 };

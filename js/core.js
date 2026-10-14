@@ -61,6 +61,28 @@ export function scheduleRender() {
 }
 
 /* ------------------------------------------------------------------ dom helpers */
+/* Update an element to new HTML by changing only what's different (text, attributes, added/removed parts),
+   instead of throwing everything away. Pictures that didn't change are not reloaded, so nothing flickers
+   when e.g. a new message changes one line on Home. */
+export function morph(el, html) {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  patchChildren(el, tpl.content);
+}
+function patchChildren(a, b) {
+  const an = [...a.childNodes], bn = [...b.childNodes];
+  bn.forEach((y, i) => {
+    const x = an[i];
+    if (!x) { a.appendChild(y); return; }
+    if (x.nodeType !== y.nodeType || x.nodeName !== y.nodeName) { a.replaceChild(y, x); return; }
+    if (x.nodeType !== 1) { if (x.nodeValue !== y.nodeValue) x.nodeValue = y.nodeValue; return; }
+    for (const { name } of [...x.attributes]) if (!y.hasAttribute(name)) x.removeAttribute(name);
+    for (const { name, value } of [...y.attributes]) if (x.getAttribute(name) !== value) x.setAttribute(name, value);
+    patchChildren(x, y);
+  });
+  for (let i = an.length - 1; i >= bn.length; i--) a.removeChild(an[i]);
+}
+
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 export const esc = (s = "") => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

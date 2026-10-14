@@ -11,7 +11,7 @@ const LIVE_MESSAGES = 60;      // newest messages kept live from Firebase; older
 import {
   auth, db, state, views, actions, hooks, scheduleRender, $, $$, esc, ICONS, avatarHtml, presenceDot,
   isOnline, statusText, toast, friendlyError, confirmDialog, closeAllModals, cld, spinner, whenDate, toDate,
-  brand, brandIcon, appName, setBrand, applyBrandChrome
+  brand, brandIcon, appName, setBrand, applyBrandChrome, morph
 } from "./core.js";
 import {
   startPresence, stopPresence, unreadNotifications, unreadMessages, announceNotification, registerPush, unregisterPush
@@ -661,7 +661,10 @@ hooks.render = function render() {
   updateChat(); // keep the hidden chat in sync so switching is instant
   const html = views[v].render();
   if (lastHtml.view !== v || lastHtml.html !== html) {
-    $("#view").innerHTML = html;
+    // Same screen, something changed (e.g. a new message on Home): update only the changed parts, so the
+    // page doesn't flash. A new screen, or one that wires things up itself (Memories, Games), is drawn fresh.
+    if (lastHtml.view === v && !views[v].mounted) morph($("#view"), html);
+    else $("#view").innerHTML = html;
     lastHtml.view = v;
     lastHtml.html = html;
     views[v].mounted?.($("#view")); // e.g. Memories wires its carousels
@@ -688,7 +691,7 @@ function renderTopbar() {
       <button class="me-btn" data-nav="more" aria-label="Your profile">${avatarHtml(state.me || { name: "?" }, "sm")}</button>
     </div>`;
   const top = $("#topbar");
-  if (top.dataset.html !== html) { top.innerHTML = html; top.dataset.html = html; }
+  if (top.dataset.html !== html) { morph(top, html); top.dataset.html = html; } // only the changed parts (no avatar flicker)
 }
 
 function renderNav() {

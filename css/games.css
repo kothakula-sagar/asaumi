@@ -325,3 +325,8 @@ body:has(#view .gm) .app { padding-bottom: calc(20px + var(--safe-b)); }
 .gm-timer.hurry { animation: timerShake .5s ease-in-out infinite; }
 @keyframes gmTimer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 @keyframes timerShake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+
+/* Snake & Ladder 5-minute clock */
+.snl-clock { margin: 8px 0 0; text-align: center; font-weight: 800; font-size: 14.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.snl-clock.hurry { color: #ffd166; animation: timerShake .5s ease-in-out infinite; }
+.snl-tok.climb, .snl-tok.slide { transition-duration: .6s; }

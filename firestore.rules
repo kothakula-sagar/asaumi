@@ -49,11 +49,17 @@ service cloud.firestore {
         && incoming().to != me()
         && incoming().type in ['text', 'image', 'video', 'voice', 'sticker']
         && (!('text' in incoming()) || incoming().text.size() <= 30000); // encrypted text is longer than plain text
-      // the receiver marks delivered / read; the sender can edit the text of their own message
+      // the receiver marks delivered / read; the sender can edit the text of their own message;
+      // either person can set or remove only THEIR OWN reaction (reactions.{uid}, encrypted)
       allow update: if isMember() && (
         (resource.data.to == me() && onlyChanges(['deliveredAt', 'readAt']))
         || (resource.data.from == me() && onlyChanges(['text', 'editedAt'])
             && incoming().text is string && incoming().text.size() <= 30000)
+        || (onlyChanges(['reactions'])
+            && incoming().reactions is map
+            && incoming().reactions.diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([me()])
+            && (!(me() in incoming().reactions)
+                || (incoming().reactions[me()] is string && incoming().reactions[me()].size() <= 200)))
       );
       // the sender can delete any time ("Delete for both"); either app can remove messages older than
       // 10 days, which both phones have already saved locally (only the last 10 days stay in Firebase)

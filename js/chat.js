@@ -519,6 +519,10 @@ function renderTyping() {
 }
 
 function renderPending() {
+  // rebuild only when an upload starts, fails or finishes (progress updates itself), so previews don't flicker
+  const sig = pending.map(p => `${p.lid}:${p.status}:${p.error || ""}`).join("|");
+  if (els.pending.dataset.sig === sig) return;
+  els.pending.dataset.sig = sig;
   els.pending.innerHTML = pending.map(p => `
     <div class="msg-row"><div class="msg me t-${p.type === "album" ? "image" : p.type} pending-up">
       <div class="bubble">

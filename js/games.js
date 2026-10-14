@@ -511,6 +511,14 @@ function mountPlay(el) {
       paintChrome(p);
       commit(p.shown, { ...fields, idle: 0 }).then(ok => { if (!ok) { p.sending = false; paintChrome(p); armTimer(p); } });
     },
+    // ends the game whoever's turn it is (e.g. the 5-minute clock in Snake & Ladder ran out)
+    end: fields => {
+      if (p.game.status !== "active" || p.sending) return;
+      p.sending = true;
+      clearTimer(p);
+      paintChrome(p);
+      commit(p.game, { ...fields, idle: 0 }).then(ok => { if (!ok) { p.sending = false; paintChrome(p); armTimer(p); } });
+    },
     rollValue,
     dice: { html: diceHtml, roll: rollDice },
     say: text => banner(p, text),
