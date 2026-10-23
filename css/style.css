@@ -1326,6 +1326,41 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .ph-strip img { width: 100%; height: 100%; object-fit: cover; }
 .photos-card { background: radial-gradient(120% 90% at 100% 0%, rgba(125, 211, 252, .3), transparent 60%), var(--glass); }
 
+/* 🗺️ Our Map */
+.map-card { background: radial-gradient(120% 90% at 0% 0%, rgba(134, 239, 172, .26), transparent 60%), radial-gradient(90% 90% at 100% 100%, rgba(249, 168, 212, .22), transparent 60%), var(--glass); }
+.map-box { position: relative; z-index: 0; isolation: isolate; padding: 6px; border-radius: 26px; }
+.map-canvas { height: min(58svh, 520px); min-height: 280px; border-radius: 20px; overflow: hidden; background: #dfe7f2; }
+.map-canvas .leaflet-control-attribution { font-size: 10px; }
+.map-canvas svg { width: auto; height: auto; } /* the app's global "svg { 100% }" would squash Leaflet's route layer */
+.map-msg { height: 100%; display: grid; place-content: center; justify-items: center; gap: 6px; text-align: center; color: #3b1fb8; font-size: 34px; padding: 20px; }
+.map-msg b { font-size: 16px; }
+.map-msg small { font-size: 13px; color: #5b4a9c; }
+.map-pin-wrap { background: none; border: 0; }
+.map-pin {
+  position: relative; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50% 50% 50% 6px;
+  transform: rotate(-45deg); border: 3px solid #fff; box-shadow: 0 6px 16px rgba(29, 10, 110, .45);
+}
+.map-pin.me { background: #38bdf8; }
+.map-pin.them { background: #ec4899; }
+.map-pin.stale { filter: grayscale(.8); opacity: .75; }
+.map-pin .avatar { --s: 36px; transform: rotate(45deg); }
+.map-panel { margin-top: 14px; display: grid; gap: 12px; }
+.map-who { display: grid; gap: 10px; }
+.map-who-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.map-who-row > span:last-child { display: grid; min-width: 0; }
+.map-who-row b { font-size: 15.5px; font-weight: 800; }
+.map-who-row small { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 2px solid #fff; }
+.map-dot.me { background: #38bdf8; }
+.map-dot.them { background: #ec4899; }
+.map-dist, .map-trip { margin: 0; font-size: 15px; font-weight: 700; }
+.map-dist small, .map-trip small { color: var(--muted); font-weight: 600; }
+.map-trip b { font-size: 18px; font-weight: 900; }
+.map-modes { margin: 0; }
+.map-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.map-note { display: grid; gap: 4px; }
+.map-note small, .map-privacy { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+
 /* gallery viewer */
 .gallery .modal { gap: 10px; }
 .gal { position: relative; display: grid; place-items: center; }

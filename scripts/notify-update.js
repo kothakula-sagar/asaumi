@@ -1,7 +1,7 @@
 // Runs in GitHub Actions after a new APK is published.
 // Sends one notification to the FCM topic "asaumi-updates" that every installed Asaumi app joins,
 // so phones still on the old version are told to update (works with the app closed). Free.
-// Uses the same GitHub secret as the app's notifications: FCM_SERVICE_ACCOUNT.
+// Uses the GitHub secret FCM_SERVICE_ACCOUNT. It runs only here on GitHub's server; the key never goes into the APK.
 const crypto = require("crypto"), fs = require("fs"), path = require("path");
 
 const TOPIC = "asaumi-updates";

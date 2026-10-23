@@ -222,7 +222,7 @@ actions.checkNotifications = async () => {
   const rows = [
     row(info.isNative, "Running as the installed app", info.isNative ? "" : "Notifications only work in the Android app."),
     row(info.canReceive, "Built with google-services.json", info.canReceive ? "" : "Upload google-services.json to GitHub and rebuild."),
-    row(info.hasKey && info.httpPlugin, "Built with the sending key", info.hasKey ? "" : "GitHub secret FCM_SERVICE_ACCOUNT was missing when this APK was built."),
+    row(info.hasRelay && info.httpPlugin, "Built with the push relay", info.hasRelay ? "" : "PUSH_RELAY_URL in js/config.js was empty when this APK was built."),
     row(perm === "granted", "Notification permission", perm === "granted" ? "" : `Status: ${perm}. Turn on notifications for Asaumi in App info.`),
     row(!!getPushToken(), "This phone registered with Firebase", getPushToken() ? "" : lastPushError() || "Not registered yet. Tap “Register again”."),
     row(pushSave.saved === true, "This phone saved to Firebase", pushSave.saved === true ? "" : pushSave.error || "Not saved yet."),

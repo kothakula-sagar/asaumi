@@ -15,6 +15,10 @@ export const CLOUDINARY = {
   folder: "anu-me"
 };
 
+// Push relay (push-relay/worker.js on Cloudflare) that sends phone notifications. The sending key lives
+// only there, never in the app. Paste your Worker's address, e.g. "https://asaumi-push.yourname.workers.dev".
+export const PUSH_RELAY_URL = "";
+
 // Memories lock PIN length
 export const PIN_LENGTH = 4;
 
