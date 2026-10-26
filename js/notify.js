@@ -5,8 +5,14 @@ import {
   db, state, uid, myName, esc, ICONS, openModal, toast, shortWhen, scheduleRender, notifText, appName, actions, $
 } from "./core.js";
 import {
-  isNative, initPush, getPushToken, pushPermission, canSendPush, sendPush, CHANNELS, buildInfo, lastPushError
+  isNative, initPush, getPushToken, pushPermission, canSendPush, sendPush, CHANNELS, buildInfo, lastPushError, onPushReceived
 } from "./native.js";
+
+// A test notification that arrives while Asaumi is on screen isn't shown in the notification bar by Android,
+// so say here that it did arrive (otherwise "sent" + nothing visible looks like a failure).
+onPushReceived(n => {
+  if (n?.data?.tag === "test") toast("✅ Test notification arrived. Asaumi was open, so Android didn't show it in the bar. Press Home first, then wait.");
+});
 
 /* ------------------------------------------------------------------ presence */
 let heartbeat;
@@ -249,8 +255,8 @@ actions.checkNotifications = async () => {
   $("[data-self]", m).addEventListener("click", () => {
     const t = getPushToken();
     if (!t) { show([{ ok: false, error: "This phone isn't registered yet." }], "Test"); return; }
-    out.textContent = "Sending in 5 seconds. Press the Home button now, because notifications don't pop up while Asaumi is open.";
-    setTimeout(async () => show(await sendPush([t], { title: notifText("title"), body: `Test notification ✓ ${appName()} can reach this phone.`, page: "more", tag: "test" }), "Test on this phone"), 5000);
+    out.textContent = "Sending in 10 seconds. Press the Home button now (pulling down the notification bar isn't enough), because notifications don't pop up while Asaumi is open.";
+    setTimeout(async () => show(await sendPush([t], { title: notifText("title"), body: `Test notification ✓ ${appName()} can reach this phone.`, page: "more", tag: "test" }), "Test on this phone"), 10000);
   });
   $("[data-partner]", m).addEventListener("click", async () => {
     out.textContent = "Sending…";

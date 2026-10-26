@@ -86,6 +86,12 @@ export async function pushPermission() {
   try { return (await Push.checkPermissions()).receive; } catch { return "unsupported"; }
 }
 
+// cb(notification) when a push arrives while Asaumi is open on screen (Android doesn't show it in the bar then)
+export function onPushReceived(cb) {
+  if (!Push) return;
+  try { Push.addListener("pushNotificationReceived", n => cb(n)); } catch { /* ignore */ }
+}
+
 // cb(page) when the user taps a notification (also fires once after a cold start)
 export function onNotificationTap(cb) {
   if (!Push) return;
