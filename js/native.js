@@ -46,11 +46,8 @@ function addPushListeners() {
 let retries = 0, retryTimer = null;
 
 // Try again when the app comes back to the screen and this phone still has no token.
-// If notifications were refused at first and later allowed in the phone's settings, the whole setup
-// runs again (before, the app gave up after the first "denied" and never registered).
 export function retryPushIfNeeded() {
-  if (!pushAvailable() || currentToken) return;
-  if (!listenersAdded) { if (tokenHandler) initPush(tokenHandler); return; }
+  if (!pushAvailable() || currentToken || !listenersAdded) return;
   retries = 0;
   Push.register().catch(() => {});
 }
@@ -84,12 +81,6 @@ export const getPushToken = () => currentToken;
 export async function pushPermission() {
   if (!pushAvailable()) return "unsupported";
   try { return (await Push.checkPermissions()).receive; } catch { return "unsupported"; }
-}
-
-// cb(notification) when a push arrives while Asaumi is open on screen (Android doesn't show it in the bar then)
-export function onPushReceived(cb) {
-  if (!Push) return;
-  try { Push.addListener("pushNotificationReceived", n => cb(n)); } catch { /* ignore */ }
 }
 
 // cb(page) when the user taps a notification (also fires once after a cold start)

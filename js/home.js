@@ -13,7 +13,6 @@ import { birthdayBanner } from "./birthday.js";
 import { wishlistCard } from "./wishlist.js";
 import { gamesCard } from "./games.js";
 import { photosCard } from "./photos.js";
-import { mapCard } from "./map.js";
 import { thoughtsToday } from "./thinking.js";
 
 function greeting() {
@@ -121,8 +120,6 @@ function renderHome() {
 
       ${photosCard()}
 
-      ${mapCard()}
-
       ${gamesCard()}
 
       ${wishlistCard()}
@@ -182,7 +179,6 @@ function renderAsaumi() {
         <button class="us-act" data-nav="wishlist"><span>🎁</span>Wishes</button>
         <button class="us-act" data-nav="games"><span>🎮</span>Games</button>
         <button class="us-act" data-nav="photos"><span>🖼️</span>Photos</button>
-        <button class="us-act" data-nav="map"><span>🗺️</span>Map</button>
       </div>
     </section>
     ${movementsSection()}`;
