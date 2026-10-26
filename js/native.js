@@ -46,8 +46,11 @@ function addPushListeners() {
 let retries = 0, retryTimer = null;
 
 // Try again when the app comes back to the screen and this phone still has no token.
+// If notifications were refused at first and later allowed in the phone's settings, the whole setup
+// runs again (before, the app gave up after the first "denied" and never registered).
 export function retryPushIfNeeded() {
-  if (!pushAvailable() || currentToken || !listenersAdded) return;
+  if (!pushAvailable() || currentToken) return;
+  if (!listenersAdded) { if (tokenHandler) initPush(tokenHandler); return; }
   retries = 0;
   Push.register().catch(() => {});
 }
