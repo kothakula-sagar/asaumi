@@ -4,9 +4,7 @@ This works like Hanuman Disha: GitHub builds the APK for you, and everything sta
 You don't need a card, Blaze, Cloud Functions or Android Studio.
 
 How the notifications work: when one of you sends a message (or adds a memory, or calls), that phone
-asks a tiny free **push relay** (a Cloudflare Worker) to send the notification to the other phone through
-Firebase Cloud Messaging, which is also free. The relay holds the sending key, so the key is **never inside the APK**
-and nobody who downloads the APK can use it. The relay only accepts your two logged-in Asaumi accounts.
+sends the notification straight to the other phone through Firebase Cloud Messaging, which is free.
 
 | When | Notification on the other phone |
 |---|---|
@@ -47,26 +45,6 @@ This key can **only send notifications**. It can't read or change any of your da
 5. Check that FCM is on: Firebase console → ⚙️ **Project settings → Cloud Messaging** →
    **Firebase Cloud Messaging API (V1)** should say **Enabled**. If it doesn't, click ⋮ → **Manage API in Google Cloud Console** → **Enable**.
 
-### Already had an older Asaumi APK? Replace the key first
-Older APKs had this key **inside them**, and the APK is published on GitHub, so treat the old key as public:
-1. Make a new key: steps 1–4 above (you can reuse the existing `asaumi-push` account → **Keys → Add key**).
-2. In the same **Keys** tab, **delete the old key** (the one with the older creation date). Old APKs can no longer send anything.
-3. Use the new key file in Part 2b and in the GitHub secret (Part 3, step 4).
-
-## PART 2b: The push relay (Cloudflare, free, no card, about 5 minutes)
-
-1. Sign up at **https://dash.cloudflare.com/sign-up** (free plan).
-2. **Workers & Pages → Create → Create Worker** → name it `asaumi-push` → **Deploy**.
-3. **Edit code** → delete everything → paste the whole contents of `push-relay/worker.js` from this folder → **Deploy**.
-4. Go back to the Worker → **Settings → Variables and Secrets → + Add**:
-   - Type **Secret**, name **`FCM_SERVICE_ACCOUNT`**, value: open the `.json` key file from Part 2 in Notepad, **select all → copy → paste**.
-   - Type **Text**, name **`ALLOWED_EMAILS`**, value: your two login emails, separated by a comma
-     (the same two emails as in `firestore.rules`), e.g. `me@gmail.com,you@gmail.com`.
-   - **Deploy** / **Save**.
-5. Copy the Worker's address (it looks like `https://asaumi-push.yourname.workers.dev`).
-   Opening it in a browser should say *"Asaumi push relay is running."*
-6. Open `js/config.js` and put that address in `PUSH_RELAY_URL = "…"`.
-
 ## PART 3: Build the APK on GitHub (about 10 minutes)
 
 1. github.com → **+ → New repository** → name `asaumi` → **Create repository**.
@@ -77,7 +55,7 @@ Older APKs had this key **inside them**, and the APK is published on GitHub, so 
    - `css`, `js`, `scripts`, `assets` folders and all the files
    - **Not** the key file from Part 2.
 3. **Commit changes**.
-4. Add the key as a **secret** (hidden; only the build uses it, to send the "new version is ready" notification. It is not put in the APK):
+4. Add the key as a **secret** (hidden, only the build can use it):
    - Repo → **Settings → Secrets and variables → Actions → New repository secret**.
    - Name: **`FCM_SERVICE_ACCOUNT`**
    - Secret: open the downloaded `.json` key file in Notepad, **select all → copy → paste** here.
@@ -86,7 +64,7 @@ Older APKs had this key **inside them**, and the APK is published on GitHub, so 
 6. Wait for the green tick ✅ (5–10 minutes). Open the run and check the step **"Copy website files into the app"**. It should say:
    ```
    receive notifications: ON
-   send notifications:    ON (push relay https://asaumi-push.….workers.dev)
+   send notifications:    ON
    ```
    If either says OFF, the line explains what's missing.
 7. Scroll to **Artifacts** → download **Asaumi-APK** → unzip it to get `app-debug.apk`.
@@ -130,6 +108,5 @@ If Android says **"App not installed"**, uninstall the old Asaumi first. Your da
 ## Good to know
 - Everything is on the free Spark plan: Authentication, Firestore, Cloud Messaging. Photos and videos are on Cloudinary's free plan.
 - Calls are live only. Nothing is recorded or stored except call time, duration and status.
-- The sending key lives only in the Cloudflare Worker secret and the GitHub secret, never in the APK or the code.
-  The build stops with an error if a private key ever ends up in the app files.
-- Cloudflare's free plan allows 100,000 relay requests a day, far more than two people use.
+- The key lives only inside your APK and the GitHub secret, and it can only send notifications.
+  Don't share the APK file with anyone else.

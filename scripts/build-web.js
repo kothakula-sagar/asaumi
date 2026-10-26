@@ -12,19 +12,23 @@ for (const d of ["css", "js"]) fs.cpSync(path.join(root, d), path.join(out, d), 
 
 // Turn on push notifications only when the Firebase Android config is present.
 const hasFirebase = fs.existsSync(path.join(root, "google-services.json"));
-// Sending: the app asks the push relay (push-relay/worker.js); the sending key is never put in the APK.
-const relayUrl = (fs.readFileSync(path.join(root, "js", "config.js"), "utf8").match(/PUSH_RELAY_URL\s*=\s*"([^"]*)"/) || [])[1] || "";
-
-const nativeJs = path.join(out, "js", "native.js");
-fs.writeFileSync(nativeJs, fs.readFileSync(nativeJs, "utf8").replace("/*@PUSH*/false", hasFirebase ? "true" : "false"));
-
-// Safety net: refuse to build if a private key ended up in the app files
-for (const f of fs.readdirSync(path.join(out, "js"))) {
-  if (/BEGIN (RSA )?PRIVATE KEY/.test(fs.readFileSync(path.join(out, "js", f), "utf8"))) {
-    console.error(`❌ js/${f} contains a private key. Remove it: the sending key belongs only in the push relay.`);
-    process.exit(1);
+// Sending key: comes from the GitHub secret FCM_SERVICE_ACCOUNT and is only written into the APK copy.
+let pushKey = null;
+if (process.env.FCM_SERVICE_ACCOUNT) {
+  try {
+    const sa = JSON.parse(process.env.FCM_SERVICE_ACCOUNT);
+    if (sa.client_email && sa.private_key && sa.project_id) {
+      pushKey = { project_id: sa.project_id, client_email: sa.client_email, private_key: sa.private_key };
+    } else console.warn("⚠️  FCM_SERVICE_ACCOUNT is missing client_email / private_key / project_id.");
+  } catch {
+    console.warn("⚠️  FCM_SERVICE_ACCOUNT is not valid JSON - paste the whole key file into the GitHub secret.");
   }
 }
+
+const nativeJs = path.join(out, "js", "native.js");
+fs.writeFileSync(nativeJs, fs.readFileSync(nativeJs, "utf8")
+  .replace("/*@PUSH*/false", hasFirebase ? "true" : "false")
+  .replace("/*@PUSHKEY*/null", pushKey ? JSON.stringify(pushKey) : "null"));
 
 // "App updates" in More: which GitHub repository publishes the APK (set automatically inside GitHub Actions)
 const repo = process.env.GITHUB_REPOSITORY || "";
@@ -34,4 +38,4 @@ fs.writeFileSync(updatesJs, fs.readFileSync(updatesJs, "utf8").replace('/*@REPO*
 console.log(`Web files copied to www/`);
 console.log(`  in-app updates from:   ${repo || "OFF (only inside GitHub Actions)"}`);
 console.log(`  receive notifications: ${hasFirebase ? "ON" : "OFF (google-services.json missing)"}`);
-console.log(`  send notifications:    ${relayUrl ? `ON (push relay ${relayUrl})` : "OFF (PUSH_RELAY_URL in js/config.js is empty)"}`);
+console.log(`  send notifications:    ${pushKey ? "ON" : "OFF (GitHub secret FCM_SERVICE_ACCOUNT missing)"}`);

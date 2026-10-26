@@ -1,8 +1,5 @@
 // Bridge to the Android app (Capacitor). In a normal browser everything here does nothing.
 // PUSH_ENABLED is switched to true by scripts/build-web.js when google-services.json is present.
-import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { PUSH_RELAY_URL } from "./config.js";
-
 const PUSH_ENABLED = /*@PUSH*/false;
 
 const Cap = window.Capacitor;
@@ -119,45 +116,74 @@ export function onShareReceived(cb) { try { ShareRx?.addListener("shared", () =>
 export const fileSrc = path => (Cap?.convertFileSrc ? Cap.convertFileSrc(path) : path);
 
 /* ------------------------------------------------------------------ sending push (free, no server) */
-// The app that performs an action (sends a message, adds a memory, calls) asks the push relay
-// (push-relay/worker.js, a free Cloudflare Worker) to notify the other phone through Firebase Cloud
-// Messaging. The sending key lives only in the relay, never in the APK; the app proves who it is with
-// its Firebase login, and the relay accepts only the two Asaumi accounts.
+// The app that performs an action (sends a message, adds a memory, calls) sends the notification
+// straight to the other phone through Firebase Cloud Messaging (free on the Spark plan).
+// PUSH_KEY is a service-account key that can ONLY send notifications. It is injected at build
+// time from the GitHub secret FCM_SERVICE_ACCOUNT and exists only inside the APK.
+const PUSH_KEY = /*@PUSHKEY*/null;
 const Http = plugin("CapacitorHttp");
-const RELAY = (PUSH_RELAY_URL || "").trim().replace(/\/+$/, "");
-export const canSendPush = () => isNative && !!RELAY && !!Http;
+export const canSendPush = () => isNative && !!PUSH_KEY && !!Http;
 
-async function relay(path, data) {
-  const user = getAuth().currentUser;
-  if (!user) throw new Error("Not signed in.");
-  const idToken = await user.getIdToken();
+const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const b64urlText = s => b64url(new TextEncoder().encode(s));
+function pemToDer(pem) {
+  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+}
+
+const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+const oauthCache = {}; // scope → { token, exp }
+async function accessToken(scope = FCM_SCOPE) {
+  const oauth = oauthCache[scope];
+  if (oauth && oauth.exp > Date.now() + 60000) return oauth.token;
+  const now = Math.floor(Date.now() / 1000);
+  const unsigned = `${b64urlText(JSON.stringify({ alg: "RS256", typ: "JWT" }))}.${b64urlText(JSON.stringify({
+    iss: PUSH_KEY.client_email,
+    scope,
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now, exp: now + 3600
+  }))}`;
+  const key = await crypto.subtle.importKey("pkcs8", pemToDer(PUSH_KEY.private_key), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
   const res = await Http.request({
     method: "POST",
-    url: `${RELAY}${path}`,
-    headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
-    data
+    url: "https://oauth2.googleapis.com/token",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    data: { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${b64url(sig)}` }
   });
-  const d = parseBody(res.data);
-  if (res.status < 200 || res.status >= 300) throw new Error(`Push relay (${res.status}): ${d?.error || JSON.stringify(d).slice(0, 200)}`);
-  return d;
+  const data = parseBody(res.data);
+  if (!data?.access_token) {
+    delete oauthCache[scope];
+    throw new Error(`Google sign-in for the sending key failed (${res.status}): ${data?.error_description || data?.error || JSON.stringify(data).slice(0, 200)}`);
+  }
+  oauthCache[scope] = { token: data.access_token, exp: Date.now() + (data.expires_in || 3600) * 1000 };
+  return oauthCache[scope].token;
 }
 
 /* ------------------------------------------------------------------ "new version" notifications */
 // This phone joins the FCM topic "asaumi-updates". After every GitHub build, the build sends one
 // notification to that topic, so phones still on the old version hear about it (even with the app closed).
-// The push relay makes the same subscription call the Firebase Admin SDK makes; free.
+// Same subscription call the Firebase Admin SDK makes; free.
 export const UPDATE_TOPIC = "asaumi-updates";
 let topicState = { ok: false, error: "" };
 export const updateAlertsState = () => topicState;
 
 async function subscribeUpdateTopic(token) {
-  if (!canSendPush() || !token) { topicState = { ok: false, error: "This APK has no push relay (PUSH_RELAY_URL in js/config.js)." }; return; }
+  if (!canSendPush() || !token) { topicState = { ok: false, error: "This APK has no notification key." }; return; }
   let done = "";
   try { done = localStorage.getItem("asaumi.topicToken") || ""; } catch { /* ignore */ }
   if (done === token) { topicState = { ok: true, error: "" }; return; }
   try {
-    const d = await relay("/subscribe", { token });
-    if (!d?.ok) throw new Error(d?.error || "Couldn't join the update notifications.");
+    const auth = await accessToken(`${FCM_SCOPE} https://www.googleapis.com/auth/cloud-platform`);
+    const res = await Http.request({
+      method: "POST",
+      url: "https://iid.googleapis.com/iid/v1:batchAdd",
+      headers: { Authorization: `Bearer ${auth}`, access_token_auth: "true", "Content-Type": "application/json" },
+      data: { to: `/topics/${UPDATE_TOPIC}`, registration_tokens: [token] }
+    });
+    const d = parseBody(res.data);
+    const err = d?.results?.[0]?.error || (res.status >= 300 ? d?.error?.message || d?.error || `HTTP ${res.status}` : "");
+    if (err) throw new Error(typeof err === "string" ? err : JSON.stringify(err).slice(0, 160));
     try { localStorage.setItem("asaumi.topicToken", token); } catch { /* ignore */ }
     topicState = { ok: true, error: "" };
   } catch (err) {
@@ -174,15 +200,42 @@ function parseBody(d) {
 // tokens: the other phone's FCM tokens. Never throws.
 // Returns one result per token: { ok, status, error }
 export async function sendPush(tokens, { title = "Asaumi", body, page = "home", tag = "asaumi", channel = CHANNELS.messages, ttl }) {
-  if (!canSendPush()) return [{ ok: false, error: "This APK was built without a push relay (PUSH_RELAY_URL in js/config.js)." }];
+  if (!canSendPush()) return [{ ok: false, error: "This APK was built without the sending key (FCM_SERVICE_ACCOUNT)." }];
   if (!tokens?.length) return [{ ok: false, error: "The other phone hasn't registered for notifications yet." }];
+  let auth;
   try {
-    const d = await relay("/send", { tokens, title, body, page, tag, channel, ...(ttl ? { ttl } : {}) });
-    return Array.isArray(d?.results) && d.results.length ? d.results : [{ ok: false, error: "The push relay sent back nothing." }];
+    auth = await accessToken();
   } catch (err) {
-    console.warn("[asaumi] push send", err);
+    console.warn("[asaumi] push auth", err);
     return [{ ok: false, error: err.message || String(err) }];
   }
+  return Promise.all(tokens.map(async token => {
+    try {
+      const res = await Http.request({
+        method: "POST",
+        url: `https://fcm.googleapis.com/v1/projects/${PUSH_KEY.project_id}/messages:send`,
+        headers: { Authorization: `Bearer ${auth}`, "Content-Type": "application/json" },
+        data: {
+          message: {
+            token,
+            notification: { title, body },
+            data: { page, tag },
+            android: {
+              priority: "HIGH",
+              ...(ttl ? { ttl: `${ttl}s` } : {}),
+              notification: { channel_id: channel, tag, icon: "ic_stat_icon", color: "#6C3BFF", sound: "default", default_vibrate_timings: true }
+            }
+          }
+        }
+      });
+      const d = parseBody(res.data);
+      if (res.status >= 200 && res.status < 300) return { ok: true, status: res.status };
+      return { ok: false, status: res.status, error: d?.error?.message || JSON.stringify(d).slice(0, 200) };
+    } catch (err) {
+      console.warn("[asaumi] push send", err);
+      return { ok: false, error: err.message || String(err) };
+    }
+  }));
 }
 
 /* ------------------------------------------------------------------ files (chat backup) */
@@ -261,7 +314,7 @@ export async function appInfo() {
 }
 
 export function buildInfo() {
-  return { isNative, canReceive: isNative && PUSH_ENABLED, hasRelay: !!RELAY, httpPlugin: !!Http, pushPlugin: !!Push };
+  return { isNative, canReceive: isNative && PUSH_ENABLED, hasKey: !!PUSH_KEY, httpPlugin: !!Http, pushPlugin: !!Push };
 }
 
 /* ------------------------------------------------------------------ local notifications (birthday at 12 AM) */
