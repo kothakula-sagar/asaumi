@@ -25,7 +25,7 @@ import "./movements.js";
 import "./wishlist.js";
 import "./home.js";
 import { askName } from "./settings.js";
-import { startLocation, stopLocation, checkNearChange } from "./together.js";
+import { startLocation, stopLocation, checkNearChange, watchTogether } from "./together.js";
 import { onBirthdaysChanged, maybeShowSurprise, syncBirthdayNotification } from "./birthday.js";
 import { onLocalNotificationTap } from "./native.js";
 import { scheduleMealCheck, sinceKey } from "./meals.js";
@@ -59,7 +59,7 @@ onAuthStateChanged(auth, async user => {
     Object.assign(state, {
       me: null, partner: null, members: {}, presence: {}, messages: [], msgLimit: LIVE_MESSAGES, loaded: {},
       memories: [], memLatest: null, memCount: null, movements: [], calls: [], notifications: [], background: null, pinHash: null, wishes: [], wishError: null,
-      locations: {}, myPos: null, birthdays: null, stickers: [], meals: {}, relationship: undefined,
+      locations: {}, myPos: null, together: undefined, birthdays: null, stickers: [], meals: {}, relationship: undefined,
       view: "home", locked: false, lockScope: "app", memUnlocked: false, pinLoaded: false, pinError: "", pin: null, pinReset: false
     });
     closeAllModals();
@@ -298,6 +298,8 @@ function subscribe() {
     });
   }, onErr));
 
+  sub(watchTogether()); // last time within 1 km + next meeting day
+
   sub(onSnapshot(doc(db, "settings", "relationship"), snap => {
     const first = state.relationship === undefined;
     state.relationship = snap.exists() ? snap.data() : null;
@@ -521,6 +523,14 @@ async function applyLive(raw, added = [], fromCache = true) {
 actions.reloadLocalChat = async () => {
   archiveFor = null;
   await loadLocalChat();
+};
+
+// Leaving the chat after "Load earlier" or a search jump: back to the newest LIVE_MESSAGES, so the hidden
+// chat doesn't keep hundreds of old messages on the page (they are still on this phone)
+actions.trimChat = () => {
+  if (state.msgLimit <= LIVE_MESSAGES) return;
+  state.msgLimit = LIVE_MESSAGES;
+  mergeMessages();
 };
 
 // "Delete from this phone" for an old message that only exists in the phone's saved chat

@@ -1,7 +1,11 @@
 // "Together": shows how far apart you are, and a hands-coming-together animation within 1 km.
 // Each phone shares its location only while the app is open and only if that person turned it on.
-import { doc, setDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, state, uid, esc, toast, toDate, ago, partnerName, scheduleRender, actions } from "./core.js";
+// settings/together keeps when you were last within 1 km and the day you meet next (either of you can set it).
+import { doc, setDoc, deleteDoc, onSnapshot, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  db, state, uid, esc, toast, toDate, ago, fmtTime, avatarHtml, myName, partnerName, openModal, friendlyError,
+  scheduleRender, actions, $
+} from "./core.js";
 import { encLocation } from "./e2ee.js";
 
 export const NEAR_METERS = 1000;
@@ -82,14 +86,114 @@ export function distanceInfo() {
   return { meters: m, near: m <= NEAR_METERS, updated: theirAt };
 }
 
+/* ------------------------------------------------------------------ last together + next meeting */
+const DAY = 864e5;
+const NOTE_EVERY_MS = 10 * 60 * 1000;   // while close, "last together" is refreshed every 10 minutes
+const NEW_MEETING_MS = 60 * 60 * 1000;  // apart for more than an hour → the next time close is a new meeting
+
+export function watchTogether() {
+  return onSnapshot(doc(db, "settings", "together"), snap => {
+    state.together = snap.exists() ? snap.data({ serverTimestamps: "estimate" }) : {};
+    scheduleRender();
+  }, err => console.warn("[asaumi] together", err));
+}
+
+const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+const dayKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const parseDay = s => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ""); return m ? new Date(+m[1], m[2] - 1, +m[3]) : null; };
+const meetFmt = new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "numeric", month: "short" });
+
+// { lastAt, since, apartDays, meet, meetDays } — meet only when it's today or later
+function meetingInfo() {
+  const t = state.together || {};
+  const lastAt = toDate(t.lastTogetherAt), since = toDate(t.togetherSince);
+  const today = midnight(new Date());
+  const meet = parseDay(t.nextMeetOn);
+  const meetDays = meet ? Math.round((meet.getTime() - today) / DAY) : null;
+  return {
+    lastAt, since,
+    apartDays: lastAt ? Math.max(0, Math.round((today - midnight(lastAt)) / DAY)) : null,
+    meet: meetDays != null && meetDays >= 0 ? meet : null,
+    meetDays: meetDays != null && meetDays >= 0 ? meetDays : null
+  };
+}
+
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function apartLine(i) {
+  if (i.apartDays == null) return "";
+  return i.apartDays === 0 ? "🕰️ Together earlier today" : i.apartDays === 1 ? "🕰️ Apart since yesterday" : `🕰️ Apart for ${plural(i.apartDays, "day")}`;
+}
+function meetLine(i) {
+  if (i.meetDays == null) return "";
+  const when = i.meetDays === 0 ? "Meeting today ❤️" : i.meetDays === 1 ? "Meeting tomorrow" : `Meeting in ${plural(i.meetDays, "day")}`;
+  return `📅 ${when} · ${meetFmt.format(i.meet)}`;
+}
+// how far along the wait is: 0 = just said goodbye, 1 = meeting day
+function waitProgress(i) {
+  if (i.apartDays == null || i.meetDays == null) return null;
+  const total = i.apartDays + i.meetDays;
+  return total ? i.apartDays / total : 1;
+}
+
+function factsHtml(i) {
+  const apart = apartLine(i), meet = meetLine(i);
+  return `
+    <div class="tg-facts">
+      ${apart ? `<span>${esc(apart)}</span>` : ""}
+      ${meet ? `<button class="tg-chip" data-action="setNextMeet">${esc(meet)}</button>`
+        : `<button class="tg-chip add" data-action="setNextMeet">📅 When do you meet next?</button>`}
+    </div>`;
+}
+
+// remembered on both phones, so "Apart for … days" also works when one phone wasn't open
+function noteTogether() {
+  const last = toDate(state.together?.lastTogetherAt)?.getTime() || 0;
+  if (state.together == null || Date.now() - last < NOTE_EVERY_MS) return;
+  const data = { lastTogetherAt: serverTimestamp() };
+  if (Date.now() - last > NEW_MEETING_MS) data.togetherSince = serverTimestamp();
+  state.together = { ...state.together, lastTogetherAt: new Date(), ...(data.togetherSince ? { togetherSince: new Date() } : {}) };
+  setDoc(doc(db, "settings", "together"), data, { merge: true }).catch(err => console.warn("[asaumi] note together", err));
+}
+
 // Little "you're close" moment the first time you come within 1 km
 export function checkNearChange() {
   const d = distanceInfo();
   const near = !!d?.near;
   if (near && !wasNear) { navigator.vibrate?.([60, 80, 60]); toast(`❤️ You're close to ${partnerName()}!`); }
+  if (near) noteTogether();
   wasNear = near;
 }
 
+actions.setNextMeet = () => {
+  const cur = state.together?.nextMeetOn || "";
+  const m = openModal(`
+    <h2>📅 Next time you meet</h2>
+    <p>Both of you see the countdown on Home.</p>
+    <label class="field"><span>Date</span><input type="date" name="meet" min="${dayKey(new Date())}" value="${esc(cur)}" /></label>
+    <p class="form-error"></p>
+    <div class="modal-actions">
+      ${cur ? `<button class="btn btn-ghost" data-clear>Remove</button>` : `<button class="btn btn-ghost" data-close>Cancel</button>`}
+      <button class="btn btn-primary" data-save>Save</button>
+    </div>`);
+  const input = $("input", m), err = $(".form-error", m);
+  const save = async value => {
+    try {
+      await setDoc(doc(db, "settings", "together"), value
+        ? { nextMeetOn: value, nextMeetBy: uid() }
+        : { nextMeetOn: deleteField(), nextMeetBy: deleteField() }, { merge: true });
+      m.close();
+      toast(value ? "Countdown set ❤️" : "Removed");
+    } catch (e) { err.textContent = friendlyError(e, "Couldn't save. Try again."); }
+  };
+  $("[data-save]", m).addEventListener("click", () => {
+    const d = parseDay(input.value);
+    if (!d || d.getTime() < midnight(new Date())) { err.textContent = "Pick today or a day after."; return; }
+    save(input.value);
+  });
+  $("[data-clear]", m)?.addEventListener("click", () => save(null));
+};
+
+/* ------------------------------------------------------------------ Home card */
 export function togetherCard() {
   if (!state.partner) return "";
   if (!sharingOn()) {
@@ -103,6 +207,8 @@ export function togetherCard() {
       </article>`;
   }
   const d = distanceInfo();
+  const info = meetingInfo();
+  const me = avatarHtml(state.me || { name: myName() }, "md"), them = avatarHtml(state.partner, "md");
   if (!d || d.waiting) {
     return `
       <article class="glass hcard together waiting">
@@ -110,27 +216,38 @@ export function togetherCard() {
           <span class="hcard-ico pulse">📍</span>
           <div class="hcard-main"><b>Together</b><small>${d?.mine === false ? "Finding your location…" : `Waiting for ${esc(partnerName())} to open the app with Together on.`}</small></div>
         </div>
+        ${factsHtml(info)}
       </article>`;
   }
   if (d.near) {
+    // the two of you stand as far apart as you really are (1 km = the whole width), and hug when very close
+    const hug = d.meters < 60;
+    const gap = hug ? 0 : Math.round(14 + Math.min(1, d.meters / NEAR_METERS) * 96);
+    const since = info.since && Date.now() - info.since.getTime() < 24 * 3600e3 ? `together since ${fmtTime(info.since)}` : "";
     return `
-      <article class="glass hcard together near">
-        <div class="together-anim" aria-hidden="true">
-          <span class="t-hand left"><i class="mirror">✋</i></span>
-          <span class="t-hand right"><i>✋</i></span>
-          <span class="t-heart">❤️</span>
+      <article class="glass hcard together near ${hug ? "tg-hug" : ""}">
+        <div class="tg-meet" style="--gap:${gap}px" aria-hidden="true">
+          <i class="tg-ring r1"></i><i class="tg-ring r2"></i>
+          <span class="tg-person left">${me}</span>
+          <span class="tg-person right">${them}</span>
+          <span class="tg-heart">❤️</span>
           <i class="t-spark s1">✨</i><i class="t-spark s2">💖</i><i class="t-spark s3">✨</i><i class="t-spark s4">💞</i>
         </div>
-        <b class="together-title">You're together ❤️</b>
-        <small class="together-sub">${d.meters < 60 ? "Right next to each other" : `Only ${fmtDistance(d.meters)} apart`} · updated ${esc(ago(d.updated))}</small>
+        <b class="together-title">${hug ? "Right here with you ❤️" : "You're together ❤️"}</b>
+        <small class="together-sub">${esc([hug ? "Right next to each other" : `Only ${fmtDistance(d.meters)} apart`, since].filter(Boolean).join(" · "))} · updated ${esc(ago(d.updated))}</small>
       </article>`;
   }
+  // far: the dot travels along the road as the meeting day comes closer
+  const prog = waitProgress(info);
   return `
     <article class="glass hcard together far">
-      <div class="together-line" aria-hidden="true">
-        <span class="t-dot"><i class="mirror">✋</i></span><i class="t-track"><i class="t-pulse"></i></i><span class="t-dot"><i>✋</i></span>
+      <div class="tg-road ${prog == null ? "idle" : ""}" style="--p:${prog == null ? 0 : Math.round(prog * 100)}%" aria-hidden="true">
+        <span class="tg-end">${me}</span>
+        <i class="tg-track"><i class="tg-fill"></i><i class="tg-dot">❤️</i></i>
+        <span class="tg-end">${them}</span>
       </div>
       <b class="together-title">${fmtDistance(d.meters)} apart</b>
+      ${factsHtml(info)}
       <small class="together-sub">Come within 1 km to see something special ❤️ · updated ${esc(ago(d.updated))}</small>
     </article>`;
 }

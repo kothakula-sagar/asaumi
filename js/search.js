@@ -8,6 +8,9 @@ import { isEnc } from "./e2ee.js";
 const MAX_RESULTS = 200;
 const KIND = { image: "📷 ", video: "🎬 " };
 
+// the last list, so opening search again is instant (it's refreshed in the background)
+let cache = { for: null, list: null };
+
 // everything searchable: saved chat + live messages, newest first
 async function loadAll() {
   const byId = new Map();
@@ -89,7 +92,15 @@ function openSearch() {
     }).join("") : `<div class="empty-mini"><span class="big">🫥</span><b>No messages found</b><p>Try another word.</p></div>`;
   };
 
-  loadAll().then(list => { all = list; run(); });
+  const me = uid();
+  if (cache.for === me && cache.list) { all = cache.list; run(); }
+  loadAll().then(list => {
+    if (uid() !== me) return;
+    const changed = !all || list.length !== all.length || list[0]?.id !== all[0]?.id;
+    cache = { for: me, list };
+    all = list;
+    if (changed) run();
+  });
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 140); });
   m.querySelector(".sr-chips").addEventListener("click", e => {
     const b = e.target.closest("[data-who]");

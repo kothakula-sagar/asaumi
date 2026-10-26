@@ -1,293 +1,351 @@
-// 🗺️ Our Map: where both of you are on an OpenStreetMap map, and the road route from you to your person.
-//  • Uses the positions "Together" already shares (only while the app is open, encrypted when E2EE is on),
-//    so it costs no extra Firebase reads and asks for no extra permission.
-//  • Map pictures: OpenStreetMap (free). Leaflet draws the map (loaded from cdnjs the first time Map opens).
-//  • Route: OpenStreetMap's free routing service (FOSSGIS). Your two positions are sent to it ONLY when you
-//    tap "Show route"; while the route is shown it is updated when one of you moves more than 300 m.
-//  • The map lives on its own page (like Games): Home's normal re-render never touches it, so it stays smooth.
-import { state, uid, esc, avatarHtml, myName, partnerName, ago, toDate, toast, views, actions, $ } from "./core.js";
+// 🗺️ Our Map: both of you on an OpenStreetMap map, how far apart you are, and the road route to your person.
+//  • Positions come from "Together" (together.js): no new permissions, nothing new saved in Firebase.
+//  • Leaflet is loaded from cdnjs the first time the page opens.
+//  • A route is fetched only when you tap "Show route" (OpenStreetMap's free FOSSGIS OSRM service, no key);
+//    only then are your two locations sent to it.
+//  • app.js re-renders often, so the page HTML stays the same: the map is created once in mounted() and
+//    refresh() only updates the pins and the panel under the map.
+import { state, uid, esc, toast, toDate, ago, avatarHtml, myName, partnerName, views, actions, $ } from "./core.js";
 import { myPosition, sharingOn, fmtDistance } from "./together.js";
 import { openInApp } from "./native.js";
 
-const LEAFLET = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4";
-const INDIA = { center: [22.6, 79.0], zoom: 4 };
-const STALE_MS = 20 * 60 * 1000;        // same "fresh" window as Together
-const REROUTE_METERS = 300;
-const REROUTE_EVERY_MS = 60 * 1000;
+const LEAFLET_JS = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+const LEAFLET_CSS = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+const TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
+const INDIA = [22.6, 79.0];
+const STALE_MS = 20 * 60 * 1000;      // partner's position older than this → grey "last seen" pin
+const REROUTE_METERS = 300;           // a shown route is fetched again when someone moved this far…
+const REROUTE_EVERY_MS = 60 * 1000;   // …but at most once a minute
 const MODES = {
-  car: { label: "🚗 Car", engine: "routed-car", google: "driving", verb: "by road" },
-  bike: { label: "🚲 Cycle", engine: "routed-bike", google: "bicycling", verb: "by cycle" },
-  foot: { label: "🚶 Walk", engine: "routed-foot", google: "walking", verb: "on foot" }
+  car: { label: "🚗 Car", engine: "routed-car", by: "by road", gmaps: "driving" },
+  bike: { label: "🚲 Cycle", engine: "routed-bike", by: "by cycle", gmaps: "bicycling" },
+  foot: { label: "🚶 Walk", engine: "routed-foot", by: "on foot", gmaps: "walking" }
 };
 
-let leaflet = null;     // Promise<L>
-let map = null, pins = {}, routeLine = null;
-let fitted = false;     // false = not yet, true = fitted by the app, "user" = you moved the map yourself
-let autoMoving = false; // the app is moving the map (so it doesn't count as "you moved it")
+let leafletLoading = null;  // Promise<L> while / after loading
+let map = null, mapEl = null, mountSeq = 0, failedEl = null;
+let myPin = null, theirPin = null, routeLayer = null;
+let userMoved = false;      // the user panned / zoomed by hand → stop auto-fitting
+let autoUntil = 0;          // zooms before this time were made by the app itself
+let fitKey = "";
 let mode = "car";
-let route = null;       // { for, mode, coords, distance, duration, at, from, to }
-let routeBusy = false;
+let route = null;           // { mode, dist, dur, coords, from, to, owner }
+let routing = false, routeSeq = 0, lastRouteTry = 0;
+let refreshQueued = false, panelHtmlShown = null;
 
 /* ------------------------------------------------------------------ positions */
-const R = 6371000, rad = x => (x * Math.PI) / 180;
-function meters(a, b) {
+export function meters(a, b) {
+  const R = 6371000, rad = x => (x * Math.PI) / 180;
   const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-// my position (only when I share), and the partner's last known one (marked stale after 20 minutes)
-const mine = () => myPosition();
-function theirs() {
-  const p = state.partner && state.locations?.[state.partner.uid];
-  if (!p || typeof p.lat !== "number") return null;
-  const at = toDate(p.at);
-  return { ...p, at, stale: !at || Date.now() - at.getTime() > STALE_MS };
+// partner's last known position (also an old one), only while Together is on for me
+function theirSpot() {
+  const p = state.partner && sharingOn() && state.locations?.[state.partner.uid];
+  const at = toDate(p?.at);
+  if (!p || !at || typeof p.lat !== "number") return null;
+  return { lat: p.lat, lng: p.lng, at, stale: Date.now() - at.getTime() > STALE_MS };
 }
 
-const fmtTrip = s => {
-  const m = Math.max(1, Math.round(s / 60));
-  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+const fmtTripTime = secs => {
+  const mins = Math.max(1, Math.round(secs / 60));
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return m ? `${h} h ${m} min` : `${h} h`;
 };
 
-/* ------------------------------------------------------------------ Leaflet (loaded once, only when needed) */
-function loadLeaflet() {
-  if (window.L) return Promise.resolve(window.L);
-  if (leaflet) return leaflet;
-  leaflet = new Promise((resolve, reject) => {
-    const css = Object.assign(document.createElement("link"), { rel: "stylesheet", href: `${LEAFLET}/leaflet.min.css` });
-    const js = Object.assign(document.createElement("script"), { src: `${LEAFLET}/leaflet.min.js`, async: true });
-    js.onload = () => (window.L ? resolve(window.L) : reject(new Error("Leaflet missing")));
-    js.onerror = () => { js.remove(); reject(new Error("Couldn't load the map")); };
-    document.head.append(css, js);
-  });
-  leaflet.catch(() => { leaflet = null; }); // try again next time (e.g. after coming back online)
-  return leaflet;
-}
-
-/* ------------------------------------------------------------------ the map */
-async function mountMap(el) {
-  if (!el) return;
-  let L;
-  try { L = await loadLeaflet(); } catch {
-    if (el.isConnected) el.innerHTML = `<div class="map-msg">🗺️<b>The map couldn't load</b><small>Check your internet, then open Map again.</small></div>`;
-    return;
-  }
-  if (!el.isConnected || map) return; // left the page meanwhile, or already mounted
-  map = L.map(el, { zoomControl: true, attributionControl: true, worldCopyJump: true }).setView(INDIA.center, INDIA.zoom);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
-  }).addTo(map);
-  // once you pan or zoom yourself, the map stops re-centring by itself (until you tap Center)
-  map.on("dragstart zoomstart", () => { if (!autoMoving) fitted = "user"; });
-  pins = {};
-  routeLine = null;
-  fitted = false;
-  setTimeout(() => map?.invalidateSize(), 60);
-  refresh();
-}
-
-function unmountMap() {
-  map?.remove();
-  map = null;
-  pins = {};
-  routeLine = null;
-}
-
-function pinIcon(user, who, stale) {
-  return window.L.divIcon({
-    className: "map-pin-wrap",
-    html: `<span class="map-pin ${who} ${stale ? "stale" : ""}">${avatarHtml(user, "sm")}</span>`,
-    iconSize: [48, 56],
-    iconAnchor: [24, 54]
-  });
-}
-
-function placePin(key, pos, user, stale, title) {
-  if (!pos) { if (pins[key]) { pins[key].marker.remove(); delete pins[key]; } return; }
-  const sig = `${user?.avatar || ""}|${user?.name || ""}|${stale}`;
-  const p = pins[key];
-  if (!p) {
-    pins[key] = { sig, marker: window.L.marker([pos.lat, pos.lng], { icon: pinIcon(user, key, stale), title, keyboard: false }).addTo(map) };
-    return;
-  }
-  p.marker.setLatLng([pos.lat, pos.lng]);
-  if (p.sig !== sig) { p.sig = sig; p.marker.setIcon(pinIcon(user, key, stale)); }
-}
-
-function fitView(force = false) {
-  if (!map || (fitted === "user" && !force)) return;
-  const a = mine(), b = theirs();
-  const pts = [a, b].filter(Boolean).map(p => [p.lat, p.lng]);
-  if (route?.coords?.length) pts.push(...route.coords);
-  if (!pts.length && !force) return;
-  autoMoving = true;
-  clearTimeout(fitView.t);
-  fitView.t = setTimeout(() => { autoMoving = false; }, 800); // after the zoom animation
-  if (!pts.length) map.setView(INDIA.center, INDIA.zoom);
-  else if (pts.length === 1) map.setView(pts[0], 15);
-  else map.fitBounds(pts, { padding: [46, 46], maxZoom: 16 });
-  if (pts.length) fitted = true;
-}
-
-function drawRoute() {
-  if (!map) return;
-  routeLine?.remove();
-  routeLine = null;
-  if (!route?.coords?.length) return;
-  routeLine = window.L.layerGroup([
-    window.L.polyline(route.coords, { color: "#3b1fb8", weight: 9, opacity: .35, lineCap: "round" }),
-    window.L.polyline(route.coords, { color: "#ec4899", weight: 5, opacity: .95, lineCap: "round", lineJoin: "round" })
-  ]).addTo(map);
-}
-
-/* ------------------------------------------------------------------ route (FOSSGIS OSRM, free, no key) */
-async function fetchRoute({ quiet = false } = {}) {
-  const a = mine(), b = theirs();
-  if (!a || !b) { if (!quiet) toast(!a ? "Turn on Together so the map knows where you are." : `Waiting for ${partnerName()}'s location.`); return; }
-  if (routeBusy) return;
-  routeBusy = true;
-  refresh();
-  const m = mode;
-  try {
-    const url = `https://routing.openstreetmap.de/${MODES[m].engine}/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
-    const r = await fetch(url);
-    const j = await r.json();
-    if (j.code !== "Ok" || !j.routes?.length) throw new Error(j.message || j.code || `HTTP ${r.status}`);
-    const rt = j.routes[0];
-    route = {
-      for: uid(), mode: m, distance: rt.distance, duration: rt.duration, at: Date.now(),
-      coords: rt.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
-      from: { lat: a.lat, lng: a.lng }, to: { lat: b.lat, lng: b.lng }
-    };
-    drawRoute();
-    if (!quiet) fitView(true);
-  } catch (err) {
-    console.warn("[asaumi] route", err);
-    if (!quiet) toast(navigator.onLine ? "Couldn't find a route right now. Try again in a minute." : "You're offline. Connect to see the route.");
-  }
-  routeBusy = false;
-  refresh();
-}
-
-// someone moved a lot while the route is shown → work it out again (at most once a minute)
-function maybeReroute() {
-  if (!route || routeBusy || Date.now() - route.at < REROUTE_EVERY_MS) return;
-  const a = mine(), b = theirs();
-  if (!a || !b) return;
-  if (meters(a, route.from) > REROUTE_METERS || meters(b, route.to) > REROUTE_METERS) fetchRoute({ quiet: true });
-}
-
-/* ------------------------------------------------------------------ panel under the map */
-function panelHtml() {
-  const p = state.partner;
-  if (!sharingOn()) {
-    return `
-      <div class="map-note">
-        <b>📍 Turn on Together</b>
-        <small>The map uses Together to show where you both are. Your location is shared only while the app is open.</small>
-      </div>
-      <button class="btn btn-primary btn-block" data-action="toggleTogether">Turn on Together</button>`;
-  }
-  const a = mine(), b = theirs();
-  const rows = `
-    <div class="map-who">
-      <div class="map-who-row"><span class="map-dot me"></span>${avatarHtml(state.me || { name: myName() }, "xs")}
-        <span><b>You</b><small>${a ? "On the map now" : "Finding your location…"}</small></span></div>
-      <div class="map-who-row"><span class="map-dot them"></span>${avatarHtml(p || { name: "?" }, "xs")}
-        <span><b>${esc(partnerName())}</b><small>${b ? `${b.stale ? "Last seen here" : "Updated"} ${esc(ago(b.at))}` : "Not sharing location right now"}</small></span></div>
-    </div>`;
-  const straight = a && b ? `<p class="map-dist">${esc(fmtDistance(meters(a, b)))} apart <small>(straight line)</small></p>` : "";
-  const chips = `<div class="ph-chips map-modes">${Object.entries(MODES).map(([k, v]) =>
-    `<button class="ph-chip ${mode === k ? "on" : ""}" data-action="mapMode" data-m="${k}">${v.label}</button>`).join("")}</div>`;
-  const shown = route && route.for === uid();
-  const trip = shown
-    ? `<p class="map-trip"><b>${esc(fmtDistance(route.distance))} · ${esc(fmtTrip(route.duration))}</b> ${esc(MODES[route.mode].verb)}${route.mode !== mode ? " <small>(tap Update route)</small>" : ""}</p>`
-    : "";
-  const can = !!(a && b);
-  return `
-    ${rows}
-    ${straight}
-    ${can ? chips : ""}
-    ${trip}
-    <div class="map-actions">
-      <button class="btn btn-primary btn-sm" data-action="mapRoute" ${can && !routeBusy ? "" : "disabled"}>${routeBusy ? "Finding route…" : shown ? "Update route" : "🧭 Show route"}</button>
-      ${can ? `<button class="btn btn-ghost btn-sm" data-action="mapNavigate">Navigate ↗</button>` : ""}
-      <button class="btn btn-ghost btn-sm" data-action="mapCenter">Center</button>
-      ${shown ? `<button class="btn btn-ghost btn-sm" data-action="mapClearRoute">Hide route</button>` : ""}
-    </div>
-    <small class="map-privacy">🔐 Route by OpenStreetMap's free routing service: your two locations are sent to it only when you ask for a route.</small>`;
-}
-
-function refresh() {
-  if (route && route.for !== uid()) route = null; // signed in as someone else
-  const panel = $("[data-map-panel]");
-  if (panel) {
-    const html = panelHtml();
-    if (panel.dataset.html !== html) { panel.innerHTML = html; panel.dataset.html = html; }
-  }
-  if (!map || !window.L) return;
-  const a = mine(), b = theirs();
-  placePin("me", a, state.me || { name: myName() }, false, "You");
-  placePin("them", b, state.partner || { name: partnerName() }, !!b?.stale, partnerName());
-  if (route && !routeLine) drawRoute();
-  if (!route && routeLine) { routeLine.remove(); routeLine = null; }
-  if (!fitted || (fitted === true && Object.keys(pins).length === 2 && !route)) fitView();
-  maybeReroute();
-}
-
-/* ------------------------------------------------------------------ page + Home card */
-views.map = {
-  // the page itself never changes (Leaflet owns the map); the panel and pins are updated by refresh()
-  render() {
-    queueMicrotask(refresh);
-    return `
-      <section class="page-head">
-        <div>
-          <p class="eyebrow">Together</p>
-          <h1>🗺️ Our Map</h1>
-          <p class="page-sub">Where you both are, and the way to each other.</p>
-        </div>
-      </section>
-      <div class="map-box glass"><div class="map-canvas" id="our-map"></div></div>
-      <div class="glass card map-panel" data-map-panel></div>`;
-  },
-  mounted(root) { mountMap($("#our-map", root)); },
-  leave() { unmountMap(); }
-};
-
+/* ------------------------------------------------------------------ Home card */
 export function mapCard() {
   if (!state.partner) return "";
-  const a = sharingOn() ? mine() : null, b = theirs();
+  const name = partnerName(), mine = myPosition(), theirs = theirSpot();
   const line = !sharingOn() ? "Turn on Together to see both of you on the map."
-    : b?.stale ? `${partnerName()} was last seen on the map ${ago(b.at)}`
-    : a && b ? `${fmtDistance(meters(a, b))} apart · see the way to ${partnerName()}`
-    : b ? `${partnerName()} is on the map · finding you…` : `Waiting for ${partnerName()}'s location`;
+    : theirs?.stale ? `${name} was last seen on the map ${ago(theirs.at)}`
+    : mine && theirs ? `${fmtDistance(meters(mine, theirs))} apart · see the way to ${name}`
+    : `Waiting for ${name}'s location`;
   return `
     <article class="glass hcard map-card">
       <header class="hcard-head">
         <span class="hcard-ico">🗺️</span>
         <h3>Our Map</h3>
       </header>
-      <small class="games-line">${esc(line)}</small>
-      <button class="btn btn-ghost btn-block" data-nav="map">🧭 Open map &amp; route</button>
+      <small class="map-card-line">${esc(line)}</small>
+      <button class="btn btn-ghost btn-block" data-nav="map">🧭 Open map & route</button>
     </article>`;
 }
 
+/* ------------------------------------------------------------------ Leaflet */
+function loadLeaflet() {
+  if (window.L?.map) return Promise.resolve(window.L);
+  if (leafletLoading) return leafletLoading;
+  const add = (tag, attrs) => new Promise((res, rej) => {
+    const el = Object.assign(document.createElement(tag), attrs);
+    el.dataset.leaflet = "";
+    el.onload = res;
+    el.onerror = () => { el.remove(); rej(new Error(`couldn't load ${attrs.src || attrs.href}`)); };
+    document.head.append(el);
+  });
+  document.querySelectorAll("[data-leaflet]").forEach(el => el.remove()); // a failed earlier try
+  leafletLoading = Promise.all([add("link", { rel: "stylesheet", href: LEAFLET_CSS }), add("script", { src: LEAFLET_JS })])
+    .then(() => { if (!window.L?.map) throw new Error("Leaflet missing"); return window.L; })
+    .catch(err => { leafletLoading = null; throw err; }); // try again the next time the page opens
+  return leafletLoading;
+}
+
+async function mount(el) {
+  destroy();
+  const seq = mountSeq;
+  mapEl = el;
+  const msg = $("[data-map-msg]", el.parentElement);
+  if (msg) { msg.hidden = false; msg.textContent = "Loading map…"; }
+  let L;
+  try {
+    L = await loadLeaflet();
+  } catch (err) {
+    console.warn("[asaumi] map", err);
+    if (seq !== mountSeq) return;
+    failedEl = el;
+    mapEl = null;
+    if (msg) msg.textContent = "The map couldn't load. Check your internet";
+    return;
+  }
+  if (seq !== mountSeq || !el.isConnected) return;
+  if (msg) msg.hidden = true;
+  map = L.map(el, { zoomControl: true, worldCopyJump: true }).setView(INDIA, 4);
+  L.tileLayer(TILES, { maxZoom: 19, attribution: ATTRIBUTION }).addTo(map);
+  userMoved = false;
+  fitKey = "";
+  map.on("dragstart", () => { userMoved = true; });
+  map.on("zoomstart", () => { if (Date.now() > autoUntil) userMoved = true; });
+  setTimeout(() => map?.invalidateSize(), 350); // after the page's entrance animation
+  drawRoute();
+  refresh();
+}
+
+function destroy() {
+  mountSeq++;
+  map?.remove();
+  map = mapEl = myPin = theirPin = routeLayer = null;
+}
+
+/* ------------------------------------------------------------------ pins */
+function pinIcon(user, cls) {
+  return window.L.divIcon({
+    className: "map-pin-wrap",
+    html: `<div class="map-pin ${cls}">${avatarHtml(user, "sm")}</div>`,
+    iconSize: [46, 56],
+    iconAnchor: [23, 56],
+    tooltipAnchor: [0, -50]
+  });
+}
+
+function place(pin, pos, key, user, cls) {
+  if (!pos) { pin?.remove(); return null; }
+  if (!pin) {
+    pin = window.L.marker([pos.lat, pos.lng], { icon: pinIcon(user, cls), keyboard: false }).addTo(map);
+  } else {
+    pin.setLatLng([pos.lat, pos.lng]);
+    if (pin.key !== key) pin.setIcon(pinIcon(user, cls));
+  }
+  pin.key = key;
+  return pin;
+}
+
+function updatePins() {
+  if (!map) return;
+  const mine = myPosition(), theirs = theirSpot();
+  const me = state.me || { name: myName() }, p = state.partner || { name: partnerName() };
+  myPin = place(myPin, mine, `me|${me.avatar}|${me.name}`, me, "me");
+  theirPin = place(theirPin, theirs, `them|${p.avatar}|${p.name}|${theirs?.stale}`, p, theirs?.stale ? "them stale" : "them");
+  if (theirPin) {
+    const tip = theirs.stale ? `Last seen here ${ago(theirs.at)}` : partnerName();
+    if (theirPin.stale !== theirs.stale) {
+      theirPin.unbindTooltip();
+      theirPin.bindTooltip(esc(tip), { direction: "top", permanent: theirs.stale, className: "map-tip" });
+      theirPin.stale = theirs.stale;
+    } else theirPin.setTooltipContent(esc(tip));
+  }
+  if (myPin && !myPin.getTooltip()) myPin.bindTooltip("You", { direction: "top", className: "map-tip" });
+
+  // fit both pins (and the route) whenever something moved, until the user moves the map by hand
+  const key = [mine?.lat, mine?.lng, theirs?.lat, theirs?.lng, route?.coords.length].join(",");
+  if (key !== fitKey) { fitKey = key; fit(); }
+}
+
+function fit(force = false) {
+  if (!map || (userMoved && !force)) return;
+  const pts = [myPosition(), theirSpot()].filter(Boolean).map(p => [p.lat, p.lng]);
+  if (route) pts.push(...route.coords);
+  autoUntil = Date.now() + 700; // the zoom this causes isn't the user's
+  if (!pts.length) map.setView(INDIA, 4);
+  else if (pts.length === 1) map.setView(pts[0], 14);
+  else map.fitBounds(window.L.latLngBounds(pts), { padding: [48, 48], maxZoom: 16 });
+}
+
+/* ------------------------------------------------------------------ route */
+function drawRoute() {
+  routeLayer?.remove();
+  routeLayer = null;
+  if (!map || !route) return;
+  const L = window.L;
+  routeLayer = L.layerGroup([
+    L.polyline(route.coords, { color: "#3b1fb8", weight: 9, opacity: 0.35, interactive: false }),
+    L.polyline(route.coords, { color: "#ec4899", weight: 5, opacity: 0.95, interactive: false })
+  ]).addTo(map);
+}
+
+function clearRoute() {
+  routeSeq++;
+  route = null;
+  routing = false;
+  drawRoute();
+}
+
+async function fetchRoute({ quiet = false } = {}) {
+  const a = myPosition(), b = theirSpot();
+  if (!a || !b) { if (!quiet) toast(`Waiting for both locations to find the way to ${partnerName()}.`); return; }
+  if (!navigator.onLine) { if (!quiet) toast("You're offline. Connect to the internet to see the route."); return; }
+  const m = mode, seq = ++routeSeq, owner = uid();
+  routing = true;
+  lastRouteTry = Date.now();
+  queueRefresh();
+  const url = `https://routing.openstreetmap.de/${MODES[m].engine}/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout?.(20000) });
+    const data = await res.json();
+    if (seq !== routeSeq || uid() !== owner) return;
+    const best = data?.code === "Ok" && data.routes?.[0];
+    if (!res.ok || !best?.geometry?.coordinates?.length) throw new Error(data?.code || res.status);
+    route = {
+      mode: m, dist: best.distance, dur: best.duration, owner,
+      coords: best.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      from: { lat: a.lat, lng: a.lng }, to: { lat: b.lat, lng: b.lng }
+    };
+    drawRoute();
+    if (!quiet) { userMoved = false; fit(true); }
+  } catch (err) {
+    if (seq !== routeSeq) return;
+    console.warn("[asaumi] route", err);
+    if (!quiet) toast(navigator.onLine ? "Couldn't find a route right now. Try again in a minute." : "You're offline. Connect to the internet to see the route.");
+  } finally {
+    if (seq === routeSeq) { routing = false; queueRefresh(); }
+  }
+}
+
+// a shown route follows you both: fetched again quietly after a 300 m move, at most once a minute
+function maybeReroute() {
+  if (!route || routing || Date.now() - lastRouteTry < REROUTE_EVERY_MS) return;
+  const a = myPosition(), b = theirSpot();
+  if (a && b && (meters(route.from, a) > REROUTE_METERS || meters(route.to, b) > REROUTE_METERS)) fetchRoute({ quiet: true });
+}
+
+/* ------------------------------------------------------------------ panel under the map */
+function panelHtml() {
+  const p = state.partner, on = sharingOn();
+  if (!p) return `<p class="map-note">Your person hasn't signed in yet ❤️</p>`;
+  const name = partnerName(), mine = myPosition(), theirs = theirSpot();
+  const meLine = !on ? "Together is off" : mine ? "On the map now" : "Finding your location…";
+  const themLine = !on ? `Turn on Together to see ${name}`
+    : !theirs ? "Not sharing location right now"
+    : theirs.stale ? `Last seen here ${ago(theirs.at)}` : `Updated ${ago(theirs.at)}`;
+  const row = (cls, user, title, sub) => `
+    <div class="map-who">
+      <i class="map-dot ${cls}"></i>${avatarHtml(user, "sm")}
+      <div class="hcard-main"><b>${esc(title)}</b><small>${esc(sub)}</small></div>
+    </div>`;
+  const both = mine && theirs;
+  let html = `
+    <div class="map-people">
+      ${row("me", state.me || { name: myName() }, "You", meLine)}
+      ${row(theirs?.stale ? "them stale" : "them", p, name, themLine)}
+    </div>
+    ${both ? `<p class="map-dist"><b>${esc(fmtDistance(meters(mine, theirs)))}</b> apart <small>(straight line)</small></p>` : ""}`;
+  if (!on) {
+    return html + `
+      <div class="map-off">
+        <p>Turn on Together to see both of you on the map and the way to ${esc(name)}.</p>
+        <button class="btn btn-primary btn-block" data-action="toggleTogether">📍 Turn on Together</button>
+      </div>`;
+  }
+  const chip = k => `<button class="ph-chip ${mode === k ? "on" : ""}" data-action="mapMode" data-m="${k}">${MODES[k].label}</button>`;
+  const summary = routing ? "Finding the way…"
+    : route ? `<b>${esc(fmtDistance(route.dist))}</b> · ${esc(fmtTripTime(route.dur))} ${MODES[route.mode].by}` : "";
+  return html + `
+    <div class="ph-chips map-modes">${Object.keys(MODES).map(chip).join("")}</div>
+    ${summary ? `<p class="map-route">${summary}</p>` : ""}
+    <div class="map-actions">
+      <button class="btn btn-primary btn-sm" data-action="mapRoute" ${both && !routing ? "" : "disabled"}>🧭 ${route ? "Update route" : "Show route"}</button>
+      <button class="btn btn-ghost btn-sm" data-action="mapNavigate" ${both ? "" : "disabled"}>Navigate ↗</button>
+      <button class="btn btn-ghost btn-sm" data-action="mapCenter">Center</button>
+      ${route ? `<button class="btn btn-ghost btn-sm" data-action="mapHideRoute">Hide route</button>` : ""}
+    </div>
+    <p class="map-privacy">🔐 Route by OpenStreetMap's free routing service: your two locations are sent to it only when you ask for a route.</p>`;
+}
+
+/* ------------------------------------------------------------------ page */
+function queueRefresh() {
+  if (refreshQueued) return;
+  refreshQueued = true;
+  queueMicrotask(refresh);
+}
+
+function refresh() {
+  refreshQueued = false;
+  if (state.view !== "map") return;
+  if (route && (route.owner !== uid() || !sharingOn())) clearRoute(); // someone else signed in / Together off
+  const el = $("#our-map");
+  if (!el) return;
+  // the map was removed (e.g. back from Chat, where the page HTML stayed the same) → build it again
+  if (mapEl !== el && failedEl !== el) mount(el);
+  const panel = $("[data-map-panel]");
+  const html = panelHtml();
+  if (panel && (panel !== panelHtmlShown?.el || panelHtmlShown.html !== html)) {
+    panel.innerHTML = html;
+    panelHtmlShown = { el: panel, html };
+  }
+  updatePins();
+  maybeReroute();
+}
+
+views.map = {
+  render() {
+    queueRefresh();
+    return `
+      <section class="page-head">
+        <div>
+          <p class="eyebrow">Wherever you are</p>
+          <h1>🗺️ Our Map</h1>
+          <p class="page-sub">Both of you, and the way to each other.</p>
+        </div>
+      </section>
+      <div class="glass map-box">
+        <div id="our-map" class="map-canvas"></div>
+        <div class="map-msg" data-map-msg hidden></div>
+      </div>
+      <div class="glass map-panel" data-map-panel></div>`;
+  },
+  mounted(root) {
+    const el = $("#our-map", root);
+    failedEl = null; // a fresh page: try loading again
+    if (el && mapEl !== el) mount(el);
+  },
+  leave() { destroy(); failedEl = null; panelHtmlShown = null; }
+};
+
 Object.assign(actions, {
-  mapRoute: () => fetchRoute(),
   mapMode: d => {
     if (!MODES[d.m] || d.m === mode) return;
     mode = d.m;
-    if (route) fetchRoute(); else refresh();
+    if (route) fetchRoute(); else queueRefresh();
   },
-  mapCenter: () => fitView(true),
-  mapClearRoute: () => { route = null; refresh(); fitView(true); },
-  // turn-by-turn directions in the phone's maps app
+  mapRoute: () => fetchRoute(),
+  mapHideRoute: () => { clearRoute(); fitKey = ""; queueRefresh(); },
+  mapCenter: () => { userMoved = false; fit(true); },
   mapNavigate: () => {
-    const a = mine(), b = theirs();
+    const a = myPosition(), b = theirSpot();
     if (!a || !b) return;
-    openInApp(`https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lng}&destination=${b.lat},${b.lng}&travelmode=${MODES[mode].google}`);
+    openInApp(`https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lng}&destination=${b.lat},${b.lng}&travelmode=${MODES[mode].gmaps}`);
   }
 });

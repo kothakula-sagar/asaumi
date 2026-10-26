@@ -327,26 +327,42 @@ body.has-photo .glow { opacity: .35; }
 .together-title { font-size: 22px; font-weight: 900; }
 .together-sub { color: var(--muted); font-size: 13.5px; font-weight: 600; }
 
-.together-anim { position: relative; width: 240px; height: 96px; }
-.t-hand { position: absolute; top: 22px; font-size: 52px; line-height: 1; filter: drop-shadow(0 6px 14px rgba(20, 5, 90, .35)); }
-.t-hand i, .t-dot i { display: inline-block; font-style: normal; }
-.t-hand i.mirror, .t-dot i.mirror { transform: scaleX(-1); }
-.t-hand.left { left: 50%; animation: handLeft 3.2s cubic-bezier(.45, 0, .2, 1) infinite; }
-.t-hand.right { right: 50%; animation: handRight 3.2s cubic-bezier(.45, 0, .2, 1) infinite; }
-@keyframes handLeft { 0%, 8% { transform: translateX(-120px) rotate(-12deg); } 42%, 72% { transform: translateX(-44px) rotate(0); } 100% { transform: translateX(-120px) rotate(-12deg); } }
-@keyframes handRight { 0%, 8% { transform: translateX(120px) rotate(12deg); } 42%, 72% { transform: translateX(44px) rotate(0); } 100% { transform: translateX(120px) rotate(12deg); } }
-.t-heart { position: absolute; left: 50%; top: 4px; font-size: 30px; transform: translateX(-50%) scale(0); animation: meetHeart 3.2s ease infinite; }
-@keyframes meetHeart { 0%, 38% { transform: translateX(-50%) translateY(10px) scale(0); opacity: 0; } 48% { transform: translateX(-50%) translateY(0) scale(1.3); opacity: 1; } 60%, 72% { transform: translateX(-50%) translateY(-4px) scale(1); opacity: 1; } 85%, 100% { transform: translateX(-50%) translateY(-18px) scale(.6); opacity: 0; } }
+/* within 1 km: both of you, as far apart as you really are, with a soft "you're here" pulse */
+.tg-meet { --gap: 60px; position: relative; width: 260px; max-width: 100%; height: 104px; }
+.tg-ring { position: absolute; left: 50%; top: 52px; width: 70px; height: 70px; margin: -35px 0 0 -35px; border-radius: 50%; border: 2px solid rgba(249, 168, 212, .75); opacity: 0; animation: tgRing 3s ease-out infinite; }
+.tg-ring.r2 { animation-delay: 1.5s; }
+@keyframes tgRing { 0% { transform: scale(.5); opacity: .9; } 100% { transform: scale(2.6); opacity: 0; } }
+.tg-person { position: absolute; top: 28px; transition: transform 1.2s var(--ease); animation: tgBreathe 3.2s ease-in-out infinite; }
+.tg-person .avatar { box-shadow: 0 0 0 3px rgba(255, 255, 255, .25), 0 8px 18px rgba(29, 10, 110, .4); }
+.tg-person.left { right: 50%; transform: translateX(calc(var(--gap) / -2)); }
+.tg-person.right { left: 50%; transform: translateX(calc(var(--gap) / 2)); animation-delay: -1.6s; }
+.tg-hug .tg-person.left { transform: translateX(10px) rotate(-8deg); }
+.tg-hug .tg-person.right { transform: translateX(-10px) rotate(8deg); }
+@keyframes tgBreathe { 0%, 100% { margin-top: 0; } 50% { margin-top: -5px; } }
+.tg-heart { position: absolute; left: 50%; top: 2px; z-index: 1; font-size: 26px; transform: translateX(-50%); animation: tgBeat 1.4s ease-in-out infinite; }
+.tg-hug .tg-heart { top: 0; font-size: 32px; }
+@keyframes tgBeat { 0%, 40%, 100% { transform: translateX(-50%) scale(1); } 15% { transform: translateX(-50%) scale(1.25); } 28% { transform: translateX(-50%) scale(1.05); } }
+.tg-meet .t-spark { top: 50px; }
 .t-spark { position: absolute; left: 50%; top: 40px; font-style: normal; font-size: 16px; opacity: 0; animation: spark 3.2s ease-out infinite; }
 .t-spark.s1 { --sx: -70px; --sy: -34px; } .t-spark.s2 { --sx: 64px; --sy: -30px; animation-delay: .1s; }
 .t-spark.s3 { --sx: -46px; --sy: 30px; animation-delay: .15s; } .t-spark.s4 { --sx: 52px; --sy: 32px; animation-delay: .05s; }
 @keyframes spark { 0%, 44% { transform: translate(-50%, 0) scale(.3); opacity: 0; } 52% { opacity: 1; } 80%, 100% { transform: translate(calc(-50% + var(--sx)), var(--sy)) scale(1); opacity: 0; } }
 
-.together-line { display: flex; align-items: center; gap: 10px; width: min(280px, 100%); margin: 6px 0 2px; }
-.t-dot { font-size: 30px; }
-.t-track { position: relative; flex: 1; height: 4px; border-radius: 4px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .55) 0 8px, transparent 8px 14px); }
-.t-pulse { position: absolute; top: 50%; left: 0; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: #fff; box-shadow: 0 0 12px var(--sky-light); animation: travel 2.6s ease-in-out infinite alternate; }
-@keyframes travel { to { left: calc(100% - 12px); } }
+/* far apart: a road between you; the heart moves along it as the meeting day comes closer */
+.tg-road { --p: 0%; display: flex; align-items: center; gap: 10px; width: min(300px, 100%); margin: 4px 0 2px; }
+.tg-end { flex: none; }
+.tg-track { position: relative; flex: 1; height: 4px; border-radius: 4px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .5) 0 8px, transparent 8px 14px); }
+.tg-fill { position: absolute; left: 0; top: 0; bottom: 0; width: var(--p); border-radius: 4px; background: linear-gradient(90deg, #7dd3fc, #f9a8d4); box-shadow: 0 0 10px rgba(249, 168, 212, .6); transition: width .8s var(--ease); }
+.tg-dot { position: absolute; top: 50%; left: var(--p); font-style: normal; font-size: 18px; line-height: 1; transform: translate(-50%, -50%); transition: left .8s var(--ease); animation: tgBeat2 1.6s ease-in-out infinite; }
+@keyframes tgBeat2 { 0%, 100% { transform: translate(-50%, -50%) scale(1); } 50% { transform: translate(-50%, -50%) scale(1.2); } }
+.tg-road.idle .tg-dot { animation: travel 2.8s ease-in-out infinite alternate; }
+@keyframes travel { from { left: 6%; } to { left: 94%; } }
+.tg-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.together.waiting .tg-facts { justify-content: flex-start; }
+.tg-facts span, .tg-chip { padding: 5px 11px; border-radius: 99px; font-size: 12.5px; font-weight: 800; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .28); }
+.tg-chip { color: #fff; }
+.tg-chip.add { border-style: dashed; color: var(--muted); }
+.cm-chips { justify-content: center; margin: 0; }
 
 /* ---------- Our story (together counter) ---------- */
 .home-grid .story { grid-column: 1 / -1; }
@@ -675,6 +691,10 @@ body.app-locked .nav, body.app-locked #app { visibility: hidden; }
 .notif-main b { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .notif-main small { color: var(--muted); font-size: 12.5px; }
 @media (max-width: 560px) { .modal-wrap.sheet { place-items: start center; } .sheet .modal { margin-top: calc(8px + var(--safe-t)); } }
+/* notifications: at most 80% of the screen; the heading and "Clear all" stay, the list scrolls */
+.notif-sheet .modal { max-height: 80svh; overflow: hidden; display: flex; flex-direction: column; }
+.notif-sheet .notif-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -4px; padding: 2px 4px; }
+.notif-sheet .sheet-head, .notif-sheet .link-btn { flex: none; }
 
 /* custom app icon (More → Customize app) */
 .brand-img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
@@ -1325,6 +1345,43 @@ body[data-view="chat"] .toast { bottom: calc(100px + var(--safe-b)); }
 .ph-strip button { aspect-ratio: 1; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .35); }
 .ph-strip img { width: 100%; height: 100%; object-fit: cover; }
 .photos-card { background: radial-gradient(120% 90% at 100% 0%, rgba(125, 211, 252, .3), transparent 60%), var(--glass); }
+
+/* ---------- Our Map (Leaflet + OpenStreetMap) ---------- */
+.map-card { background: radial-gradient(110% 90% at 0% 0%, rgba(34, 211, 122, .26), transparent 60%), radial-gradient(110% 90% at 100% 100%, rgba(236, 72, 153, .26), transparent 60%), var(--glass); }
+.map-card-line { color: var(--muted); font-size: 14px; font-weight: 600; line-height: 1.4; }
+.map-box { position: relative; z-index: 0; isolation: isolate; padding: 6px; border-radius: var(--r-lg); }
+.map-canvas { height: min(58svh, 520px); min-height: 280px; border-radius: 22px; overflow: hidden; background: #c9d4e6; }
+/* the global "svg { width: 100%; height: 100% }" squashes Leaflet's route layer to 0×0 */
+.map-canvas svg { width: auto; height: auto; }
+.map-msg { position: absolute; inset: 6px; z-index: 1000; display: grid; place-items: center; padding: 20px; border-radius: 22px; text-align: center; font-weight: 800; color: #fff; background: rgba(29, 15, 94, .72); }
+.map-pin-wrap { background: none; border: 0; }
+.map-pin {
+  width: 46px; height: 46px; padding: 3px; display: grid; place-items: center;
+  border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  background: var(--pin, #38bdf8); border: 2px solid #fff; box-shadow: 0 6px 16px rgba(29, 10, 110, .45);
+}
+.map-pin .avatar { --s: 36px; transform: rotate(45deg); border-width: 1.5px; box-shadow: none; }
+.map-pin.me { --pin: #38bdf8; }
+.map-pin.them { --pin: #ec4899; }
+.map-pin.stale { --pin: #9ca3af; filter: grayscale(1); opacity: .8; }
+.map-tip { font: 700 12.5px "Figtree", system-ui, sans-serif; color: #1d0f5e; border-radius: 10px; }
+.map-panel { margin-top: 14px; padding: 16px; display: grid; gap: 12px; }
+.map-people { display: grid; gap: 10px; }
+.map-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.map-who .hcard-main b { font-size: 16px; }
+.map-who .hcard-main small { font-size: 13.5px; }
+.map-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; background: #38bdf8; box-shadow: 0 0 10px currentColor; color: #38bdf8; }
+.map-dot.them { background: #ec4899; color: #ec4899; }
+.map-dot.stale { background: #9ca3af; color: transparent; }
+.map-dist, .map-route { margin: 0; font-size: 15px; color: var(--muted); }
+.map-dist b, .map-route b { font-size: 18px; font-weight: 900; color: #fff; }
+.map-dist small { font-size: 13px; }
+.map-modes { margin: 0; }
+.map-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.map-actions .btn { padding: 0 10px; }
+.map-off { display: grid; gap: 10px; }
+.map-off p, .map-note { margin: 0; color: var(--muted); font-size: 14.5px; }
+.map-privacy { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--faint); }
 
 /* gallery viewer */
 .gallery .modal { gap: 10px; }

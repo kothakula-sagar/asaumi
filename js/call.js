@@ -11,6 +11,7 @@ import {
 import { notifyPartner, systemNotify, pushPartner } from "./notify.js";
 import { CHANNELS } from "./native.js";
 import { ICE_SERVERS } from "./config.js";
+import { enc, dec } from "./e2ee.js";
 
 const RING_TIMEOUT = 45000;       // caller gives up after this
 const CONNECT_TIMEOUT = 35000;    // accepted but never connected
@@ -153,11 +154,13 @@ function showEnded(title, detail) {
 }
 
 /* ------------------------------------------------------------------ chat during the call */
-// Messages are normal (encrypted) chat messages, so they're also in the chat afterwards. On the call
-// screen they float over the video for a few seconds and then fade away, so the call isn't disturbed.
+// Messages sent during a call live only on the call document (chat_{uid}: the latest one, encrypted),
+// so they never appear in the chat. They float over the video for a while (More → Calls, 10 s by default)
+// and are removed from the call document when the call ends.
 export const CALL_EMOJIS_DEFAULT = ["❤️", "😘", "😂", "🥰", "👍", "🔥"];
 export const callEmojis = () => (Array.isArray(state.me?.callEmojis) && state.me.callEmojis.length ? state.me.callEmojis : CALL_EMOJIS_DEFAULT);
-const FLOAT_MS = 4200;
+export const CALL_MSG_SECS = [5, 10, 15, 20, 30, 60];
+export const callMsgSecs = () => (CALL_MSG_SECS.includes(state.me?.callMsgSecs) ? state.me.callMsgSecs : 10);
 
 function toggleCallChat() {
   const box = call?.els?.screen && $("[data-cchat]", call.els.screen);
@@ -167,11 +170,28 @@ function toggleCallChat() {
   if (!box.hidden) $("input", box).focus({ preventScroll: true });
 }
 
-function sendInCall(text) {
-  if (!call) return;
+async function sendInCall(text) {
+  if (!call?.ref) return;
+  const c = call;
   showCallMessage({ type: "text", text }, true);
-  Promise.resolve(actions.sendQuickText?.(text)).catch(() => toast("Message couldn't be sent."));
   navigator.vibrate?.(8);
+  try {
+    c.chatSent = (c.chatSent || 0) + 1;
+    await updateDoc(c.ref, { [`chat_${uid()}`]: { t: await enc(text), n: c.chatSent } });
+  } catch (err) {
+    console.warn("[asaumi] call message", err);
+    if (call === c) toast("Message couldn't be sent.");
+  }
+}
+
+// a new message from the other person on the call document
+async function receiveInCall(d) {
+  const m = d?.[`chat_${call.otherUid}`];
+  if (!m || typeof m.n !== "number" || m.n <= (call.chatSeen || 0)) return;
+  call.chatSeen = m.n;
+  const c = call;
+  const text = await dec(m.t);
+  if (call === c && text) showCallMessage({ type: "text", text });
 }
 
 // floating bubble on the call screen; m = chat message (decrypted)
@@ -184,7 +204,7 @@ export function showCallMessage(m, mine = false) {
   const b = document.createElement("div");
   b.className = `cf-msg ${mine ? "me" : "them"} ${onlyEmoji ? "emoji" : ""}`;
   b.textContent = label;
-  b.style.animationDuration = `${FLOAT_MS}ms`;
+  b.style.animationDuration = `${callMsgSecs()}s`;
   b.addEventListener("animationend", () => b.remove());
   wrap.append(b);
   while (wrap.children.length > 4) wrap.firstElementChild.remove(); // never more than 4 on screen
@@ -358,6 +378,7 @@ async function startCall(kind = "video") {
     if (!d || !call) return;
     call.remoteCamOff = d[`cam_${call.otherUid}`] === false;
     call.remoteMuted = d[`mic_${call.otherUid}`] === false;
+    receiveInCall(d);
     if (d.answer && d.answer.rev > call.answerRev && call.pc.signalingState === "have-local-offer") {
       call.answerRev = d.answer.rev;
       try {
@@ -516,6 +537,7 @@ async function acceptCall(c) {
     if (!d || !call) return;
     call.remoteCamOff = d[`cam_${call.otherUid}`] === false;
     call.remoteMuted = d[`mic_${call.otherUid}`] === false;
+    receiveInCall(d);
     if (d.offer && d.offer.rev > call.offerRev) await answerOffer(d.offer, false); // ICE restart
     if (["ended", "missed"].includes(d.status) && d.endedBy !== uid()) remoteEnded(d);
     paintState();
@@ -547,7 +569,10 @@ async function finish(reason = "ended") {
   const unanswered = c.role === "caller" && ["calling", "ringing"].includes(c.state);
   const status = reason === "failed" ? "failed" : c.connectedAt ? "ended" : unanswered ? "missed" : "ended";
   cleanup();
-  const upd = { status, endedAt: serverTimestamp(), endedBy: uid(), duration: secs, offer: deleteField(), answer: deleteField() };
+  const upd = {
+    status, endedAt: serverTimestamp(), endedBy: uid(), duration: secs, offer: deleteField(), answer: deleteField(),
+    [`chat_${uid()}`]: deleteField(), [`chat_${c.otherUid}`]: deleteField() // call messages aren't kept
+  };
   updateDoc(c.ref, upd).catch(() => {});
   cleanCandidates(c.ref);
   if (status === "missed") {

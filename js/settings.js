@@ -15,7 +15,37 @@ import { backupCard } from "./backup.js";
 import { biometricSettingsRow } from "./lock.js";
 import { e2eeCard } from "./e2ee.js";
 import { screenshotRows } from "./screenguard.js";
-import { callEmojis, CALL_EMOJIS_DEFAULT } from "./call.js";
+import { callEmojis, CALL_EMOJIS_DEFAULT, callMsgSecs, CALL_MSG_SECS } from "./call.js";
+
+/* ------------------------------------------------------------------ how long call messages stay on screen */
+function pickCallMsgTime() {
+  let secs = callMsgSecs();
+  const m = openModal(`
+    <h2>Call messages</h2>
+    <p>How long a message or emoji stays over the video during a call. Call messages are never saved in the chat.</p>
+    <div class="ph-chips cm-chips">${CALL_MSG_SECS.map(s => `<button type="button" class="ph-chip" data-s="${s}">${s} s</button>`).join("")}</div>
+    <p class="form-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close>Cancel</button>
+      <button class="btn btn-primary" data-save>Save</button>
+    </div>`);
+  const err = $(".form-error", m);
+  const draw = () => m.querySelectorAll("[data-s]").forEach(b => b.classList.toggle("on", Number(b.dataset.s) === secs));
+  draw();
+  $(".cm-chips", m).addEventListener("click", e => {
+    const b = e.target.closest("[data-s]");
+    if (b) { secs = Number(b.dataset.s); draw(); }
+  });
+  $("[data-save]", m).addEventListener("click", async () => {
+    try {
+      await setDoc(doc(db, "users", uid()), { callMsgSecs: secs }, { merge: true });
+      state.me = { ...state.me, callMsgSecs: secs };
+      m.close();
+      toast("Saved ✨");
+      scheduleRender();
+    } catch (e) { err.textContent = friendlyError(e, "Couldn't save. Try again."); }
+  });
+}
 
 /* ------------------------------------------------------------------ quick emojis shown during calls */
 const EMOJI_CHOICES = (
@@ -27,7 +57,7 @@ function pickCallEmojis() {
   let picked = [...callEmojis()];
   const m = openModal(`
     <h2>Quick emojis in calls</h2>
-    <p>Pick up to ${MAX_CALL_EMOJIS}. They appear when you tap 💬 during a call, and float over the video for a few seconds.</p>
+    <p>Pick up to ${MAX_CALL_EMOJIS}. They appear when you tap 💬 during a call, and float over the video for ${callMsgSecs()} seconds.</p>
     <div class="ce-picked"></div>
     <div class="ce-grid">${EMOJI_CHOICES.map(e => `<button type="button" data-e="${e}">${e}</button>`).join("")}</div>
     <p class="form-error"></p>
@@ -179,6 +209,11 @@ function renderMore() {
         <button class="set-row" data-action="pickCallEmojis">
           <span class="set-ico">💬</span>
           <span class="set-main"><b>Quick emojis in calls</b><small class="ce-preview">${callEmojis().map(esc).join(" ")}</small></span>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-row" data-action="pickCallMsgTime">
+          <span class="set-ico">⏱️</span>
+          <span class="set-main"><b>Call messages stay for</b><small>${callMsgSecs()} seconds · not saved in the chat</small></span>
           <span class="chev">›</span>
         </button>
         ${callHistory()}
@@ -447,6 +482,7 @@ views.more = { render: renderMore };
 Object.assign(actions, {
   editName: () => editName(false),
   pickCallEmojis,
+  pickCallMsgTime,
   customizeApp,
   changePassword,
   enableNotifications,

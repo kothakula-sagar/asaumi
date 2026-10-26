@@ -317,7 +317,17 @@ function itemHtml(it, showDate) {
 /* ------------------------------------------------------------------ chat photo → Memories */
 // Memories are loaded only after they're unlocked; until then photos saved from this phone are remembered here
 const savedToMemories = new Set();
-const inMemories = url => !!url && (savedToMemories.has(url) || state.memories.some(m => m.url === url || m.items?.some(x => x.url === url)));
+// every photo link that is in Memories, rebuilt only when the memory list changes (checked for each chat photo)
+let memUrls = { list: null, set: new Set() };
+function memoryUrls() {
+  if (memUrls.list !== state.memories) {
+    const set = new Set();
+    state.memories.forEach(m => { if (m.url) set.add(m.url); m.items?.forEach(x => x.url && set.add(x.url)); });
+    memUrls = { list: state.memories, set };
+  }
+  return memUrls.set;
+}
+const inMemories = url => !!url && (savedToMemories.has(url) || memoryUrls().has(url));
 
 // In an album the button follows the slide on screen (hidden on videos: Memories are photos)
 function toMemoryButton(id, slide) {
@@ -395,9 +405,19 @@ function timeline() {
   return [...msgs, ...calls].sort((a, b) => (toDate(a.createdAt)?.getTime() ?? Infinity) - (toDate(b.createdAt)?.getTime() ?? Infinity));
 }
 
+// what the message list is built from; app.js calls updateChat() on every render (presence, ticks…),
+// so the list is only rebuilt when one of these changed
+let listInputs = [];
+const currentInputs = () => [state.messages, state.calls, state.memories, savedToMemories.size, !!state.loaded.messages, state.msgLimit, pending.length, new Date().toDateString()];
+
 export function updateChat() {
   if (!els) return;
   renderHeader();
+  renderPending();
+  renderTyping();
+  const inputs = currentInputs();
+  if (!firstPaint && inputs.every((x, i) => x === listInputs[i])) return;
+  listInputs = inputs;
   renderSide();
 
   const wasNear = nearBottom();
@@ -448,9 +468,6 @@ export function updateChat() {
     anchor = r.el;
   }
   for (const [id, r] of rendered) if (!seen.has(id)) { r.el.remove(); rendered.delete(id); }
-
-  renderPending();
-  renderTyping();
 
   const ids = items.map(i => i.id).join();
   const lastItem = items.at(-1);
@@ -1305,6 +1322,7 @@ views.chat = {
     typingStop();
     els.emoji.hidden = true;
     if (els.composer.dataset.mode === "rec") stopRecording(true);
+    actions.trimChat?.();
   }
 };
 

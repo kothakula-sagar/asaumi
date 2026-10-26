@@ -142,7 +142,7 @@ actions.openNotifications = () => {
     </div>
     ${rows ? `<div class="notif-list">${rows}</div>` : `
       <div class="empty-mini"><span class="big">🔔</span><b>All caught up</b><p>Little updates from your person will appear here.</p></div>`}
-    ${state.notifications.length ? '<button class="link-btn" data-clear>Clear all</button>' : ""}`, { cls: "sheet" });
+    ${state.notifications.length ? '<button class="link-btn" data-clear>Clear all</button>' : ""}`, { cls: "sheet notif-sheet" });
   $("[data-clear]", m)?.addEventListener("click", async () => { await clearAll(); m.close(); });
   markAllRead();
 };
